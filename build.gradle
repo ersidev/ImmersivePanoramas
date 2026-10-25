@@ -1,0 +1,27 @@
+plugins {
+    id 'base'
+    id 'net.fabricmc.fabric-loom' version '1.18-SNAPSHOT' apply false
+    id 'net.neoforged.moddev' version '2.0.148' apply false
+}
+
+subprojects {
+    group = rootProject.group
+    version = rootProject.mod_version
+    layout.buildDirectory = rootProject.layout.buildDirectory.dir(project.name)
+}
+
+def loaderProjects = [project(':fabric'), project(':neoforge')]
+
+def copyJars = tasks.register('copyJars', Copy) {
+    loaderProjects.each { p ->
+        dependsOn p.tasks.named('assemble')
+        from(p.layout.buildDirectory.dir('libs')) {
+            exclude '*-sources.jar'
+        }
+    }
+    into layout.buildDirectory.dir('libs')
+}
+
+tasks.named('assemble') {
+    dependsOn copyJars
+}

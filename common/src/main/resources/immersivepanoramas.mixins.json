@@ -1,0 +1,25 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "xyz.ersi.immersivepanoramas.mixin",
+  "compatibilityLevel": "JAVA_${java_version}",
+  "mixins": [
+  ],
+  "client": [
+    "client.MinecraftMixin",
+    "client.GameRendererMixin",
+    "client.GuiRendererMixin",
+    "client.PanoramaAccessor",
+    "client.GenericMessageScreenMixin",
+    "client.TitleScreenMixin",
+    "client.ClientPacketListenerMixin",
+    "client.GuiGraphicsExtractorInvoker",
+    "client.LevelRendererMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}
