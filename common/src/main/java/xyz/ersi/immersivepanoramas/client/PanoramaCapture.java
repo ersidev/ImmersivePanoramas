@@ -22,9 +22,16 @@ import xyz.ersi.immersivepanoramas.mixin.client.PanoramaAccessor;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
 
 public class PanoramaCapture {
-    private static boolean isCapturing = false;
+    private static final int CAPTURE_SIZE = 1024;
+    private static boolean isCapturing;
+    private static PendingCapture pendingCapture;
+    private static long generation;
+    private static CompletableFuture<Void> saveTask = CompletableFuture.completedFuture(null);
 
     public static void captureOnDisconnect(Minecraft client) {
         if (client.level == null || client.player == null || isCapturing) {
@@ -32,55 +39,42 @@ public class PanoramaCapture {
             return;
         }
 
-        boolean isSingleplayer = client.isLocalServer() || (client.getSingleplayerServer() != null);
-        ModConfig config = ModConfig.getInstance();
-        if (!config.enabled || (isSingleplayer && !config.enableSingleplayer) || !config.isAllowed(client)) {
+        if (!ModConfig.getInstance().isAllowed(client)) {
             FrozenWorldRenderer.clear();
             return;
         }
 
         isCapturing = true;
+        close();
+        PendingCapture capture = new PendingCapture(generation, CustomPanoramaManager.getWorldKey(client), client.player.getXRot());
         try {
-            Path panoramaDir = CustomPanoramaManager.getPanoramaDir();
-            Files.createDirectories(panoramaDir);
-
             int ow = client.getWindow().getWidth();
             int oh = client.getWindow().getHeight();
             RenderTarget target = client.gameRenderer.mainRenderTarget();
-
             float xRot = client.player.getXRot();
             float yRot = client.player.getYRot();
             float xRotO = client.player.xRotO;
             float yRotO = client.player.yRotO;
             CameraType originalCameraType = client.options.getCameraType();
-
-            CustomPanoramaManager.setSavedPitch(xRot);
-            Panorama panorama = client.gameRenderer.panorama();
-            if (panorama != null) {
-                ((PanoramaAccessor) panorama).setSpin(0.0F);
-                panorama.startSpin();
-            }
-
-            int captureSize = 1024;
-            client.gameRenderer.setRenderBlockOutline(false);
             Camera camera = client.gameRenderer.mainCamera();
-            NativeImage[] capturedFaces = new NativeImage[6];
 
             try {
-                if (originalCameraType != CameraType.FIRST_PERSON) {
-                    client.options.setCameraType(CameraType.FIRST_PERSON);
-                }
+                client.gameRenderer.setRenderBlockOutline(false);
+                client.options.setCameraType(CameraType.FIRST_PERSON);
                 camera.enablePanoramicMode();
-                client.getWindow().setWidth(captureSize);
-                client.getWindow().setHeight(captureSize);
-                target.resize(captureSize, captureSize);
+                client.getWindow().setWidth(CAPTURE_SIZE);
+                client.getWindow().setHeight(CAPTURE_SIZE);
+                target.resize(CAPTURE_SIZE, CAPTURE_SIZE);
 
                 GpuTexture colorTexture = target.getColorTexture();
                 if (colorTexture == null) {
                     throw new IllegalStateException("Main render target has no color texture");
                 }
-                int blockSize = colorTexture.getFormat().blockSize();
-                long bufferSize = (long) captureSize * captureSize * blockSize;
+                capture.blockSize = colorTexture.getFormat().blockSize();
+                if (capture.blockSize != 4) {
+                    throw new IllegalStateException("Unsupported panorama pixel format: " + colorTexture.getFormat());
+                }
+                long bufferSize = (long) CAPTURE_SIZE * CAPTURE_SIZE * capture.blockSize;
                 GpuDevice device = RenderSystem.getDevice();
 
                 for (int i = 0; i < 6; i++) {
@@ -102,70 +96,21 @@ public class PanoramaCapture {
                     }
 
                     final int faceIndex = i;
-                    try (GpuBuffer buffer = device.createBuffer(
+                    capture.buffers[i] = device.createBuffer(
                         () -> "Panorama capture face " + faceIndex,
                         GpuBuffer.USAGE_MAP_READ | GpuBuffer.USAGE_COPY_DST,
                         bufferSize
-                    )) {
-                        CommandEncoder encoder = device.createCommandEncoder();
-                        encoder.copyTextureToBuffer(colorTexture, buffer, 0L, () -> {}, 0);
-                        try (GpuFence fence = encoder.createFence()) {
-                            encoder.submit();
-                            fence.awaitCompletion(GpuFence.NO_TIMEOUT);
-                        }
-
-                        try (GpuBufferSlice.MappedView view = buffer.map(true, false)) {
-                            ByteBuffer data = view.data();
-                            NativeImage image = new NativeImage(captureSize, captureSize, false);
-                            for (int y = 0; y < captureSize; y++) {
-                                for (int x = 0; x < captureSize; x++) {
-                                    int pixel = data.getInt((x + y * captureSize) * blockSize);
-                                    image.setPixelABGR(x, captureSize - y - 1, pixel | 0xFF000000);
-                                }
-                            }
-                            capturedFaces[i] = image;
-                        }
+                    );
+                    CommandEncoder encoder = device.createCommandEncoder();
+                    encoder.copyTextureToBuffer(colorTexture, capture.buffers[i], 0L, () -> {}, 0);
+                    if (i == 5) {
+                        capture.fence = encoder.createFence();
                     }
+                    encoder.submit();
                     RenderSystem.getDynamicUniforms().reset();
                 }
-
-                boolean allCaptured = true;
-                for (int i = 0; i < 6; i++) {
-                    if (capturedFaces[i] == null) {
-                        allCaptured = false;
-                        break;
-                    }
-                }
-
-                if (allCaptured) {
-                    CustomPanoramaManager.uploadFaces(capturedFaces);
-                    if (isSingleplayer) {
-                        FrozenWorldRenderer.setAllowedForSavingScreen(true);
-                    }
-
-                    Util.ioPool().execute(() -> {
-                        for (int i = 0; i < 6; i++) {
-                            try (NativeImage img = capturedFaces[i]) {
-                                Path file = panoramaDir.resolve("panorama_" + i + ".png");
-                                img.writeToFile(file);
-                            } catch (Exception e) {
-                                ModLogger.error("Failed to save panorama face {}", i, e);
-                            }
-                        }
-                    });
-                } else {
-                    ModLogger.warn("Not all panorama faces were captured successfully");
-                    FrozenWorldRenderer.clear();
-                    for (int i = 0; i < 6; i++) {
-                        if (capturedFaces[i] != null) {
-                            capturedFaces[i].close();
-                        }
-                    }
-                }
             } finally {
-                if (originalCameraType != CameraType.FIRST_PERSON) {
-                    client.options.setCameraType(originalCameraType);
-                }
+                client.options.setCameraType(originalCameraType);
                 client.player.setXRot(xRot);
                 client.player.setYRot(yRot);
                 client.player.xRotO = xRotO;
@@ -173,14 +118,156 @@ public class PanoramaCapture {
                 client.gameRenderer.setRenderBlockOutline(true);
                 client.getWindow().setWidth(ow);
                 client.getWindow().setHeight(oh);
-                target.resize(ow, oh);
                 camera.disablePanoramicMode();
+                target.resize(ow, oh);
+            }
+
+            pendingCapture = capture;
+            if (client.isLocalServer() || client.getSingleplayerServer() != null) {
+                FrozenWorldRenderer.setAllowedForSavingScreen(true);
             }
         } catch (Exception e) {
+            capture.close();
             ModLogger.error("Failed to capture panorama on disconnect", e);
             FrozenWorldRenderer.clear();
         } finally {
             isCapturing = false;
+        }
+    }
+
+    public static void processPendingCapture(Minecraft client) {
+        PendingCapture capture = pendingCapture;
+        if (capture == null) {
+            return;
+        }
+        try {
+            if (!capture.fence.awaitCompletion(0L)) {
+                if (System.nanoTime() - capture.startedAt > TimeUnit.SECONDS.toNanos(10)) {
+                    throw new IllegalStateException("Timed out waiting for panorama readback");
+                }
+                return;
+            }
+            pendingCapture = null;
+            byte[][] pixels = new byte[6][];
+            for (int i = 0; i < pixels.length; i++) {
+                pixels[i] = new byte[CAPTURE_SIZE * CAPTURE_SIZE * capture.blockSize];
+                try (GpuBufferSlice.MappedView view = capture.buffers[i].map(true, false)) {
+                    view.data().get(pixels[i]);
+                }
+            }
+            capture.close();
+            Util.ioPool().execute(() -> {
+                for (byte[] face : pixels) {
+                    for (int offset = 3; offset < face.length; offset += 4) {
+                        face[offset] = (byte) 255;
+                    }
+                }
+                client.execute(() -> completeCapture(client, capture, pixels));
+            });
+        } catch (Exception e) {
+            pendingCapture = null;
+            capture.close();
+            ModLogger.error("Failed to read panorama capture", e);
+            FrozenWorldRenderer.clear();
+        }
+    }
+
+    private static void completeCapture(Minecraft client, PendingCapture capture, byte[][] pixels) {
+        if (capture.generation != generation) {
+            return;
+        }
+        NativeImage[] faces = new NativeImage[6];
+        boolean saving = false;
+        try {
+            int rowSize = CAPTURE_SIZE * capture.blockSize;
+            for (int i = 0; i < faces.length; i++) {
+                faces[i] = new NativeImage(CAPTURE_SIZE, CAPTURE_SIZE, false);
+                ByteBuffer destination = faces[i].getPixelBytes();
+                for (int y = CAPTURE_SIZE - 1; y >= 0; y--) {
+                    destination.put(pixels[i], y * rowSize, rowSize);
+                }
+            }
+            CustomPanoramaManager.uploadFaces(faces);
+            CustomPanoramaManager.setSavedPitch(capture.pitch);
+            CustomPanoramaManager.setWorldKey(capture.worldKey);
+            Panorama panorama = client.gameRenderer.panorama();
+            if (panorama != null) {
+                ((PanoramaAccessor) panorama).setSpin(0.0F);
+                panorama.startSpin();
+            }
+            Path panoramaDir = CustomPanoramaManager.getPanoramaDir();
+            saveTask = saveTask.handle((result, error) -> null).thenRunAsync(() -> {
+                try {
+                    Files.createDirectories(panoramaDir);
+                    for (int i = 0; i < faces.length; i++) {
+                        faces[i].writeToFile(panoramaDir.resolve("panorama_" + i + ".png"));
+                    }
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            }, Util.ioPool()).whenComplete((result, error) -> {
+                try {
+                    if (error != null) {
+                        ModLogger.error("Failed to save panorama", error);
+                    }
+                } finally {
+                    closeImages(faces);
+                }
+            });
+            saving = true;
+        } catch (Exception e) {
+            ModLogger.error("Failed to upload panorama capture", e);
+            FrozenWorldRenderer.clear();
+        } finally {
+            if (!saving) {
+                closeImages(faces);
+            }
+        }
+    }
+
+    private static void closeImages(NativeImage[] faces) {
+        for (NativeImage face : faces) {
+            if (face != null) {
+                face.close();
+            }
+        }
+    }
+
+    public static void close() {
+        generation++;
+        if (pendingCapture != null) {
+            pendingCapture.close();
+            pendingCapture = null;
+        }
+    }
+
+    private static final class PendingCapture implements AutoCloseable {
+        private final GpuBuffer[] buffers = new GpuBuffer[6];
+        private final long generation;
+        private final String worldKey;
+        private final float pitch;
+        private final long startedAt = System.nanoTime();
+        private GpuFence fence;
+        private int blockSize;
+
+        private PendingCapture(long generation, String worldKey, float pitch) {
+            this.generation = generation;
+            this.worldKey = worldKey;
+            this.pitch = pitch;
+        }
+
+        @Override
+        public void close() {
+            if (fence != null) {
+                fence.close();
+                fence = null;
+            }
+            for (int i = 0; i < buffers.length; i++) {
+                if (buffers[i] != null) {
+                    buffers[i].close();
+                    buffers[i] = null;
+                }
+            }
         }
     }
 }

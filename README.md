@@ -29,7 +29,6 @@ When you disconnect, it captures the area from your exact location and camera an
 
 ### Features
 
-- **Fast GPU capture**: Done directly on the GPU when you leave, so it won't freeze your game or cause lag spikes.
 - **Exact view alignment**: Saves your camera angle so the main menu panorama points right where you were looking.
 - **Vanilla style**: Uses Minecraft's standard menu blur and dimming so it feels like part of the base game.
 - **World & server rules**: Allow or block specific singleplayer worlds and multiplayer servers in the config menu.
@@ -42,11 +41,11 @@ Open the config menu using [Mod Menu](https://modrinth.com/mod/modmenu) on Fabri
 
 ![Immersive Panoramas Config Screen](https://cdn.modrinth.com/data/cached_images/0d346bfef60747ec245794326c8ffdf254839641.png)
 
-| Setting | Description |
-| :--- | :--- |
-| **Enable Panoramas** | Turn panorama captures on or off. |
-| **List Mode** | Switch between Allow List (only capture listed worlds) or Block List (capture everywhere except listed worlds). |
-| **World & Server List** | Select which singleplayer worlds or servers to include or skip. |
+| Setting                 | Description                                                                                                     |
+| :---------------------- | :-------------------------------------------------------------------------------------------------------------- |
+| **Enable Panoramas**    | Turn panorama captures on or off.                                                                               |
+| **List Mode**           | Switch between Allow List (only capture listed worlds) or Block List (capture everywhere except listed worlds). |
+| **World & Server List** | Select which singleplayer worlds or servers to include or skip.                                                 |
 
 ---
 

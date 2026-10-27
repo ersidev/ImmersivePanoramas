@@ -18,6 +18,16 @@ public class MinecraftMixin {
         CustomPanoramaManager.init((Minecraft) (Object) this);
     }
 
+    @Inject(method = "renderFrame", at = @At("HEAD"))
+    private void onRenderFrame(boolean renderLevel, CallbackInfo ci) {
+        PanoramaCapture.processPendingCapture((Minecraft) (Object) this);
+    }
+
+    @Inject(method = "close", at = @At("HEAD"))
+    private void onClose(CallbackInfo ci) {
+        PanoramaCapture.close();
+    }
+
     @Inject(method = "disconnect(Lnet/minecraft/client/gui/screens/Screen;ZZ)V", at = @At("HEAD"))
     private void onDisconnect(Screen screen, boolean keepResourcePacks, boolean stopSound, CallbackInfo ci) {
         PanoramaCapture.captureOnDisconnect((Minecraft) (Object) this);

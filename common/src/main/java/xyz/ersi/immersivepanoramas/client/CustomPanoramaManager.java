@@ -6,11 +6,13 @@ import net.minecraft.client.renderer.CubeMap;
 import net.minecraft.client.renderer.texture.TextureManager;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
+import net.minecraft.world.level.storage.LevelResource;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig;
 import xyz.ersi.immersivepanoramas.mixin.client.PanoramaAccessor;
 import xyz.ersi.immersivepanoramas.platform.Services;
 
 import java.nio.file.Path;
+import java.util.Locale;
 
 public class CustomPanoramaManager {
     public static final Identifier CUSTOM_PANORAMA_ID = Identifier.fromNamespaceAndPath("immersivepanoramas", "panorama");
@@ -18,6 +20,7 @@ public class CustomPanoramaManager {
     private static CubeMap customCubeMap;
     private static CustomCubeMapTexture customTexture;
     private static float savedPitch = 10.0F;
+    private static String worldKey;
 
     public static float getSavedPitch() {
         return savedPitch;
@@ -25,6 +28,25 @@ public class CustomPanoramaManager {
 
     public static void setSavedPitch(float pitch) {
         savedPitch = Mth.clamp(pitch, -90.0F, 90.0F);
+    }
+
+    public static String getWorldKey(Minecraft client) {
+        if (client.level == null) {
+            return null;
+        }
+        String world;
+        if (client.getSingleplayerServer() != null) {
+            world = "world:" + client.getSingleplayerServer().getWorldPath(LevelResource.ROOT).toAbsolutePath().normalize();
+        } else if (client.getCurrentServer() != null) {
+            world = "server:" + client.getCurrentServer().ip.trim().toLowerCase(Locale.ROOT);
+        } else {
+            return null;
+        }
+        return world + "|" + client.level.dimension().identifier();
+    }
+
+    public static synchronized void setWorldKey(String key) {
+        worldKey = key;
     }
 
     public static Path getPanoramaDir() {
@@ -81,7 +103,8 @@ public class CustomPanoramaManager {
     }
 
     public static synchronized void applyPanoramaRotation(Minecraft client) {
-        if (client.player == null || !ModConfig.getInstance().alignPlayerRotation) {
+        if (client.player == null || !ModConfig.getInstance().alignPlayerRotation
+            || !hasCustomPanorama() || worldKey == null || !worldKey.equals(getWorldKey(client))) {
             return;
         }
 
@@ -110,6 +133,7 @@ public class CustomPanoramaManager {
     }
 
     public static synchronized void close() {
+        worldKey = null;
         if (customCubeMap != null) {
             customCubeMap.close();
             customCubeMap = null;
