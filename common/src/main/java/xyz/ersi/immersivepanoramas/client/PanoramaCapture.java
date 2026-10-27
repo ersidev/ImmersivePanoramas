@@ -14,6 +14,7 @@ import net.minecraft.client.CameraType;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.Panorama;
+import net.minecraft.gizmos.Gizmos;
 import net.minecraft.util.Util;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig;
 import xyz.ersi.immersivepanoramas.mixin.client.PanoramaAccessor;
@@ -94,9 +95,11 @@ public class PanoramaCapture {
                     client.player.yRotO = client.player.getYRot();
                     client.player.xRotO = client.player.getXRot();
 
-                    client.gameRenderer.update(DeltaTracker.ONE);
-                    client.gameRenderer.extract(DeltaTracker.ONE, true);
-                    client.gameRenderer.renderLevel();
+                    try (Gizmos.TemporaryCollection gizmos = client.levelExtractor.collectPerFrameMainThreadGizmos()) {
+                        client.gameRenderer.update(DeltaTracker.ONE);
+                        client.gameRenderer.extract(DeltaTracker.ONE, true);
+                        client.gameRenderer.renderLevel();
+                    }
 
                     final int faceIndex = i;
                     try (GpuBuffer buffer = device.createBuffer(
