@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 96 96" role="img">
+<title id="title">Immersive Panoramas</title>
+<defs>
+  <linearGradient id="sunset" x1="20" y1="38" x2="70" y2="15" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#ed796b"/>
+    <stop offset=".6" stop-color="#ffac79"/>
+    <stop offset="1" stop-color="#ffcb86"/>
+  </linearGradient>
+  <radialGradient id="dusk" cx="48" cy="51" r="47" gradientUnits="userSpaceOnUse">
+    <stop stop-color="#efac86"/>
+    <stop offset=".55" stop-color="#a26e8b"/>
+    <stop offset="1" stop-color="#646283"/>
+  </radialGradient>
+  <clipPath id="left-face">
+    <path d="M9 27l39 22.5v44L9 71Z"/>
+  </clipPath>
+  <clipPath id="right-face">
+    <path d="M48 49.5 87 27v44L48 93.5Z"/>
+  </clipPath>
+</defs>
+<g clip-path="url(#left-face)">
+  <path d="M9 27h39v67H9Z" fill="url(#dusk)"/>
+  <g transform="matrix(1 .576923 0 1 9 27)">
+    <path d="M0 22l8-5 7 1 7-9h5l12 7v28H0Z" fill="#736081"/>
+    <path d="M0 28l10-7 8 1 7-7h5l9 7v22H0Z" fill="#4b4b67"/>
+    <path d="M0 31h8l6-4h10l6-3h9v20H0Z" fill="#30665e"/>
+    <path d="M0 38h11l5-5h11l5-4h7v15H0Z" fill="#254e4b"/>
+    <path d="M19 44l8-5h7l5-4v9Z" fill="#397164"/>
+  </g>
+  <g id="spruce" transform="translate(0 4)">
+    <path d="M22 64h2.5v8H22Z" fill="#253d44"/>
+    <path d="M23.5 66h1v6h-1Z" fill="#435852"/>
+    <path d="M20 54h6.5v4H29v4h2v4H16v-4h2v-4h2Z" fill="#244b49"/>
+    <path d="M23 54h3.5v4H29v4h2v4h-4v-4h-2v-4h-2Z" fill="#3b6b5c"/>
+  </g>
+</g>
+<g clip-path="url(#right-face)">
+  <path d="M48 27h39v67H48Z" fill="url(#dusk)"/>
+  <g transform="matrix(1 -.576923 0 1 48 49.5)">
+    <path d="M0 16h8l6 2 10-8h6l9 5v29H0Z" fill="#826685"/>
+    <path d="M0 22h9l7 2 10-7h6l7 4v23H0Z" fill="#58516f"/>
+    <path d="M0 24h7l8 4h9l8-5h7v21H0Z" fill="#437f71"/>
+    <path d="M0 29h7l7 4-3 4 7 3h10l6-2h5v6H0Z" fill="#2d6057"/>
+  </g>
+  <use href="#spruce" transform="translate(51.4 13.2) scale(.8)"/>
+</g>
+<path d="M48 4.5 87 27 48 49.5 9 27Z" fill="url(#sunset)"/>
+<g transform="matrix(1 .576923 -1 .576923 48 4.5)">
+  <rect x="6" y="6" width="15" height="15" fill="#ffdb9c" opacity=".8"/>
+  <rect x="8.5" y="8.5" width="10" height="10" fill="#fff1cf"/>
+  <path d="M4 30h9v-4h9v9.5H4Z" fill="#ffc29b"/>
+  <path d="M28 7h9v11H28Z" fill="#ffe0ad"/>
+</g>
+<path d="m13 27 35-20.2L83 27" fill="none" stroke="#ffe1ae" stroke-width="1" opacity=".6"/>
+<path d="m9 27 39 22.5L87 27M48 49.5v44" fill="none" stroke="#263548" stroke-width="1.35" stroke-linejoin="round"/>
+<path d="M48 4.5 87 27v44L48 93.5 9 71V27Z" fill="none" stroke="#202c41" stroke-width="3" stroke-linejoin="round"/>
+</svg>

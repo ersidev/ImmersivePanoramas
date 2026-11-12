@@ -1,6 +1,6 @@
 <div align="center">
 
-![Immersive Panoramas Logo](https://cdn.modrinth.com/data/cached_images/c007118169c60c7ec10a00dc041e8a5647ffce77.png)
+![Immersive Panoramas Logo](artwork/icon-readme.png)
 
 # Immersive Panoramas
 
