@@ -112,7 +112,7 @@ public class ModConfig {
                     levelName = client.getSingleplayerServer().getWorldData().getLevelName();
                 }
                 try {
-                    Path rootPath = client.getSingleplayerServer().getWorldPath(LevelResource.ROOT);
+                    Path rootPath = client.getSingleplayerServer().getWorldPath(LevelResource.ROOT).normalize();
                     if (rootPath != null && rootPath.getFileName() != null) {
                         levelId = rootPath.getFileName().toString();
                     }
