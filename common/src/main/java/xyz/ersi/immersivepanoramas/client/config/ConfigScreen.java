@@ -218,7 +218,7 @@ public class ConfigScreen extends Screen {
     public void onClose() {
         this.config.save();
         if (this.minecraft != null) {
-            this.minecraft.gui.setScreen(this.parent);
+            this.minecraft.setScreen(this.parent);
         }
     }
 

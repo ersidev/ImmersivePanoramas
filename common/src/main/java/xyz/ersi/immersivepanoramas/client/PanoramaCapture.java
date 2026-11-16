@@ -1,15 +1,14 @@
 package xyz.ersi.immersivepanoramas.client;
 
+import com.mojang.blaze3d.buffers.GpuBuffer;
+import com.mojang.blaze3d.buffers.GpuFence;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.renderpearl.api.GpuFormat;
-import com.mojang.renderpearl.api.buffers.GpuBuffer;
-import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
-import com.mojang.renderpearl.api.commands.CommandEncoder;
-import com.mojang.renderpearl.api.commands.GpuFence;
-import com.mojang.renderpearl.api.device.GpuDevice;
-import com.mojang.renderpearl.api.textures.GpuTexture;
+import com.mojang.blaze3d.systems.CommandEncoder;
+import com.mojang.blaze3d.systems.GpuDevice;
+import com.mojang.blaze3d.textures.GpuTexture;
+import com.mojang.blaze3d.textures.TextureFormat;
 import net.minecraft.client.Camera;
 import net.minecraft.client.CameraType;
 import net.minecraft.client.DeltaTracker;
@@ -19,6 +18,7 @@ import net.minecraft.client.renderer.Panorama;
 import net.minecraft.gizmos.Gizmos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
+import org.lwjgl.system.MemoryUtil;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig.CaptureResolution;
 import xyz.ersi.immersivepanoramas.mixin.client.GameRendererAccessor;
@@ -55,7 +55,7 @@ public class PanoramaCapture {
         float pitch = view == null ? player.getXRot() : view.pitch();
         float fov = view == null ? 0.0F : view.fov();
         int faceSize = config.captureResolution == CaptureResolution.AUTO
-            ? chooseFaceSize(client.gameRenderer.mainRenderTarget().height, fov)
+            ? chooseFaceSize(client.getMainRenderTarget().height, fov)
             : config.captureResolution.getFaceSize();
         PendingCapture capture = new PendingCapture(CustomPanoramaManager.getWorldKey(client), yaw, pitch, fov, faceSize);
         isCapturing = true;
@@ -73,7 +73,7 @@ public class PanoramaCapture {
     }
 
     public static CameraView getCaptureView(Camera camera) {
-        if (captureView == null || camera != Minecraft.getInstance().gameRenderer.mainCamera()) {
+        if (captureView == null || camera != Minecraft.getInstance().gameRenderer.getMainCamera()) {
             return null;
         }
         return captureView;
@@ -90,7 +90,7 @@ public class PanoramaCapture {
     private static void captureFaces(Minecraft client, LocalPlayer player, PendingCapture capture, CameraView view) {
         int windowWidth = client.getWindow().getWidth();
         int windowHeight = client.getWindow().getHeight();
-        RenderTarget target = client.gameRenderer.mainRenderTarget();
+        RenderTarget target = client.getMainRenderTarget();
         int targetWidth = target.width;
         int targetHeight = target.height;
         float pitch = player.getXRot();
@@ -99,7 +99,7 @@ public class PanoramaCapture {
         float previousPitch = player.xRotO;
         float previousYaw = player.yRotO;
         CameraType cameraType = client.options.getCameraType();
-        Camera camera = client.gameRenderer.mainCamera();
+        Camera camera = client.gameRenderer.getMainCamera();
         boolean wasPanoramic = camera.isPanoramicMode();
         boolean renderBlockOutline = ((GameRendererAccessor) client.gameRenderer).isRenderBlockOutline();
         boolean shadersActive = IrisCompat.isShaderPackInUse();
@@ -125,14 +125,14 @@ public class PanoramaCapture {
             target.resize(faceSize, faceSize);
 
             GpuTexture colorTexture = target.getColorTexture();
-            if (colorTexture == null || colorTexture.getFormat() != GpuFormat.RGBA8_UNORM) {
+            if (colorTexture == null || colorTexture.getFormat() != TextureFormat.RGBA8) {
                 throw new IllegalStateException("Panorama capture requires an RGBA8 main render target");
             }
 
             GpuDevice device = RenderSystem.getDevice();
             capture.buffer = device.createBuffer(
                 () -> "Panorama capture",
-                GpuBuffer.USAGE_MAP_READ | GpuBuffer.USAGE_COPY_DST | GpuBuffer.USAGE_COPY_SRC,
+                GpuBuffer.USAGE_MAP_READ | GpuBuffer.USAGE_COPY_DST,
                 (long) faceBytes * FACE_COUNT
             );
 
@@ -161,7 +161,6 @@ public class PanoramaCapture {
                 if (i == FACE_COUNT - 1) {
                     capture.fence = encoder.createFence();
                 }
-                encoder.submit();
                 RenderSystem.getDynamicUniforms().reset();
             }
         } finally {
@@ -190,11 +189,11 @@ public class PanoramaCapture {
 
     private static Vec3 renderView(Minecraft client, CameraView view) {
         captureView = view;
-        try (Gizmos.TemporaryCollection gizmos = client.levelExtractor.collectPerFrameMainThreadGizmos()) {
-            client.gameRenderer.update(DeltaTracker.ONE);
-            Vec3 position = client.gameRenderer.mainCamera().position();
+        try (Gizmos.TemporaryCollection gizmos = client.levelRenderer.collectPerFrameGizmos()) {
+            client.gameRenderer.update(DeltaTracker.ONE, true);
+            Vec3 position = client.gameRenderer.getMainCamera().position();
             client.gameRenderer.extract(DeltaTracker.ONE, true);
-            client.gameRenderer.renderLevel();
+            client.gameRenderer.renderLevel(DeltaTracker.ONE);
             return position;
         } finally {
             captureView = null;
@@ -221,12 +220,12 @@ public class PanoramaCapture {
             int rowBytes = faceSize * Integer.BYTES;
             int faceBytes = faceSize * rowBytes;
             try (capture) {
-                try (GpuBufferSlice.MappedView view = capture.buffer.map(true, false)) {
+                try (GpuBuffer.MappedView view = RenderSystem.getDevice().createCommandEncoder().mapBuffer(capture.buffer, true, false)) {
                     ByteBuffer pixels = view.data();
                     for (int i = 0; i < FACE_COUNT; i++) {
                         NativeImage face = new NativeImage(faceSize, faceSize, false);
                         faces[i] = face;
-                        ByteBuffer destination = face.getPixelBytes();
+                        ByteBuffer destination = MemoryUtil.memByteBuffer(face.getPointer(), faceBytes);
                         int faceOffset = i * faceBytes;
                         for (int y = faceSize - 1; y >= 0; y--) {
                             int rowOffset = faceOffset + y * rowBytes;
@@ -235,13 +234,12 @@ public class PanoramaCapture {
                         }
                     }
                 }
-                CustomPanoramaManager.uploadCapture(capture.buffer.slice(), faceSize, capture.worldKey, capture.yaw, capture.pitch, capture.fov);
+                CustomPanoramaManager.uploadCapture(faces, capture.worldKey, capture.yaw, capture.pitch, capture.fov);
             }
 
-            Panorama panorama = client.gameRenderer.panorama();
+            Panorama panorama = client.gameRenderer.getPanorama();
             if (panorama != null) {
                 ((PanoramaAccessor) panorama).setSpin(0.0F);
-                panorama.startSpin();
             }
             PanoramaStorage.queueSave(faces);
             faces = null;

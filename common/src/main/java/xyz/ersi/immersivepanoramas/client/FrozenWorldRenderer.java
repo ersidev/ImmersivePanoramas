@@ -2,12 +2,12 @@ package xyz.ersi.immersivepanoramas.client;
 
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.renderpearl.api.commands.CommandEncoder;
-import com.mojang.renderpearl.api.commands.RenderPass;
-import com.mojang.renderpearl.api.device.GpuDevice;
-import com.mojang.renderpearl.api.textures.FilterMode;
-import com.mojang.renderpearl.api.textures.GpuTexture;
-import com.mojang.renderpearl.api.textures.GpuTextureView;
+import com.mojang.blaze3d.systems.CommandEncoder;
+import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.blaze3d.systems.GpuDevice;
+import com.mojang.blaze3d.textures.FilterMode;
+import com.mojang.blaze3d.textures.GpuTexture;
+import com.mojang.blaze3d.textures.GpuTextureView;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.GenericMessageScreen;
@@ -23,7 +23,7 @@ import xyz.ersi.immersivepanoramas.client.PanoramaCapture.CameraView;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig;
 import xyz.ersi.immersivepanoramas.mixin.client.PanoramaAccessor;
 
-import java.util.Optional;
+import java.util.OptionalInt;
 
 public final class FrozenWorldRenderer {
     private static GpuTexture texture;
@@ -37,17 +37,17 @@ public final class FrozenWorldRenderer {
     private FrozenWorldRenderer() {}
 
     public static void beforeGui(Minecraft client, boolean renderedWorld) {
-        Screen screen = client.gui.screen();
+        Screen screen = client.screen;
         if (showsFrozenWorld(screen)) {
-            if (!blit(client.gameRenderer.mainRenderTarget())) {
+            if (!blit(client.getMainRenderTarget())) {
                 // screen extraction skipped the panorama, restore its draw before the GUI renders
-                float spin = ((PanoramaAccessor) client.gameRenderer.panorama()).getSpin();
-                client.gameRenderer.gameRenderState().guiRenderState.panoramaRenderState = new PanoramaRenderState(-spin);
+                float spin = ((PanoramaAccessor) client.gameRenderer.getPanorama()).getSpin();
+                client.gameRenderer.getGameRenderState().guiRenderState.panoramaRenderState = new PanoramaRenderState(-spin);
             }
         } else if (!exiting) {
             if (renderedWorld && client.level != null && screen instanceof PauseScreen
                 && ModConfig.getInstance().isAllowed(client)) {
-                Camera camera = client.gameRenderer.mainCamera();
+                Camera camera = client.gameRenderer.getMainCamera();
                 capturedLevel = client.level;
                 capturedView = camera.isInitialized()
                     ? new CameraView(camera.position(), camera.yRot(), camera.xRot(), camera.getFov())
@@ -79,7 +79,6 @@ public final class FrozenWorldRenderer {
 
             CommandEncoder encoder = device.createCommandEncoder();
             encoder.copyTextureToTexture(source, texture, 0, 0, 0, 0, 0, width, height);
-            encoder.submit();
         } catch (Exception e) {
             ModLogger.error("Failed to copy frozen world frame", e);
             clear();
@@ -136,13 +135,12 @@ public final class FrozenWorldRenderer {
             CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
             // this vanilla pass copies RGB even when the world texture has zero alpha
             try (RenderPass pass = encoder.createRenderPass(() -> "Frozen world background",
-                target.getColorTextureView(), Optional.empty())) {
-                pass.setPipeline(RenderSystem.getCompiledPipeline(RenderPipelines.TRACY_BLIT));
+                target.getColorTextureView(), OptionalInt.empty())) {
+                pass.setPipeline(RenderPipelines.TRACY_BLIT);
                 RenderSystem.bindDefaultUniforms(pass);
-                pass.setUniform("InSampler", textureView, RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
-                pass.draw(3, 1, 0, 0);
+                pass.bindTexture("InSampler", textureView, RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
+                pass.draw(0, 3);
             }
-            encoder.submit();
             return true;
         } catch (Exception e) {
             ModLogger.error("Failed to draw frozen world frame", e);

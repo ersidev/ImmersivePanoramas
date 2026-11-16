@@ -16,7 +16,7 @@ import xyz.ersi.immersivepanoramas.client.config.ModConfig;
 public class GuiRendererMixin {
 
     @WrapOperation(
-        method = "render()V",
+        method = "render(Lcom/mojang/blaze3d/buffers/GpuBufferSlice;)V",
         at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/CubeMap;render(FF)V")
     )
     private void wrapPanoramaRender(CubeMap cubeMap, float rotX, float rotY, Operation<Void> original) {

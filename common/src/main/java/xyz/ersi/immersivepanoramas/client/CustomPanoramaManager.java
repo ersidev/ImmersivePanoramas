@@ -1,6 +1,6 @@
 package xyz.ersi.immersivepanoramas.client;
 
-import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
+import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.CubeMap;
 import net.minecraft.client.renderer.texture.TextureManager;
@@ -68,7 +68,7 @@ public class CustomPanoramaManager {
             customCubeMap.render(rotX, showCaptureAngle ? 0.0F : rotY);
             if (showCaptureAngle) {
                 showCaptureAngle = false;
-                ((PanoramaAccessor) Minecraft.getInstance().gameRenderer.panorama()).setSpin(0.0F);
+                ((PanoramaAccessor) Minecraft.getInstance().gameRenderer.getPanorama()).setSpin(0.0F);
             }
         }
     }
@@ -82,7 +82,7 @@ public class CustomPanoramaManager {
         return view.fov();
     }
 
-    static synchronized void uploadCapture(GpuBufferSlice readback, int faceSize, String worldKey, float yaw, float pitch, float fov) {
+    static synchronized void uploadCapture(NativeImage[] faces, String worldKey, float yaw, float pitch, float fov) {
         if (customTexture == null) {
             customTexture = new CustomCubeMapTexture(CUSTOM_PANORAMA_ID);
         }
@@ -90,10 +90,10 @@ public class CustomPanoramaManager {
             customCubeMap = new CubeMap(CUSTOM_PANORAMA_ID);
         }
         registerTextures(Minecraft.getInstance().getTextureManager());
-        customTexture.uploadReadback(readback, faceSize);
+        customTexture.uploadFaces(faces);
         capturedView = new CapturedView(worldKey, yaw, Mth.clamp(pitch, -90.0F, 90.0F), fov);
         showCaptureAngle = true;
-        ModLogger.info("Uploaded custom panorama faces directly to GPU memory");
+        ModLogger.info("Uploaded custom panorama faces");
     }
 
     public static synchronized void applyPanoramaRotation(Minecraft client) {
@@ -104,8 +104,8 @@ public class CustomPanoramaManager {
         }
 
         float currentSpin = 0.0F;
-        if (client.gameRenderer != null && client.gameRenderer.panorama() != null) {
-            currentSpin = ((PanoramaAccessor) client.gameRenderer.panorama()).getSpin();
+        if (client.gameRenderer != null && client.gameRenderer.getPanorama() != null) {
+            currentSpin = ((PanoramaAccessor) client.gameRenderer.getPanorama()).getSpin();
         }
 
         float targetYaw = Mth.wrapDegrees(view.yaw() + currentSpin);
