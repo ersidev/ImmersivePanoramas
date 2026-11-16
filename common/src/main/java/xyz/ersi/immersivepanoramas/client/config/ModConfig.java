@@ -24,8 +24,26 @@ public class ModConfig {
     public boolean alignPlayerRotation = true;
     public boolean enableSingleplayer = true;
     public boolean enableMultiplayer = true;
+    public CaptureResolution captureResolution = CaptureResolution.AUTO;
     public FilterMode filterMode = FilterMode.BLOCK_LIST;
     public Set<String> filteredWorlds = new LinkedHashSet<>();
+
+    public enum CaptureResolution {
+        AUTO(0),
+        STANDARD(1024),
+        HIGH(1536),
+        ULTRA(2048);
+
+        private final int faceSize;
+
+        CaptureResolution(int faceSize) {
+            this.faceSize = faceSize;
+        }
+
+        public int getFaceSize() {
+            return faceSize;
+        }
+    }
 
     public enum FilterMode {
         @SerializedName(value = "BLOCK_LIST", alternate = {"DENY_LIST", "ALLOW_ALL"})
@@ -66,6 +84,7 @@ public class ModConfig {
                     this.alignPlayerRotation = loaded.alignPlayerRotation;
                     this.enableSingleplayer = loaded.enableSingleplayer;
                     this.enableMultiplayer = loaded.enableMultiplayer;
+                    this.captureResolution = loaded.captureResolution != null ? loaded.captureResolution : CaptureResolution.AUTO;
                     this.filterMode = loaded.filterMode != null ? loaded.filterMode : FilterMode.BLOCK_LIST;
                     this.filteredWorlds = loaded.filteredWorlds != null ? loaded.filteredWorlds : new LinkedHashSet<>();
                     return;

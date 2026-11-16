@@ -6,15 +6,18 @@
   "mixins": [
   ],
   "client": [
+    "client.CameraMixin",
     "client.MinecraftMixin",
     "client.GameRendererMixin",
+    "client.GameRendererAccessor",
     "client.GuiRendererMixin",
+    "client.CubeMapMixin",
+    "client.IrisExclusiveUniformsMixin",
+    "client.IrisProgramSourceMixin",
+    "client.ShowMyWorldPanoramaMixin",
     "client.PanoramaAccessor",
-    "client.GenericMessageScreenMixin",
-    "client.TitleScreenMixin",
-    "client.ClientPacketListenerMixin",
-    "client.GuiGraphicsExtractorInvoker",
-    "client.LevelRendererMixin"
+    "client.ScreenMixin",
+    "client.ClientPacketListenerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

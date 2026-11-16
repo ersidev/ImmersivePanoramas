@@ -6,7 +6,9 @@ import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import com.mojang.renderpearl.api.commands.CommandEncoder;
 import com.mojang.renderpearl.api.device.GpuDevice;
+import com.mojang.renderpearl.api.textures.FilterMode;
 import com.mojang.renderpearl.api.textures.GpuTexture;
+import com.mojang.renderpearl.api.textures.GpuTextureView;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.resources.Identifier;
 import java.io.InputStream;
@@ -17,14 +19,14 @@ public class CustomCubeMapTexture extends AbstractTexture {
     private static final int[] SUFFIX_MAPPING = {1, 3, 5, 4, 0, 2};
 
     private final Identifier id;
-    private boolean loaded = false;
 
     public CustomCubeMapTexture(Identifier id) {
         this.id = id;
+        this.sampler = RenderSystem.getSamplerCache().getRepeat(FilterMode.LINEAR);
     }
 
     public boolean isLoaded() {
-        return this.loaded;
+        return this.textureView != null;
     }
 
     public synchronized boolean loadFromDirectory(Path dir) {
@@ -32,12 +34,11 @@ public class CustomCubeMapTexture extends AbstractTexture {
             return false;
         }
 
-        NativeImage[] faces = new NativeImage[6];
+        NativeImage[] faces = new NativeImage[SUFFIX_MAPPING.length];
         try {
-            for (int i = 0; i < 6; i++) {
-                Path file = dir.resolve("panorama_" + i + ".png");
+            for (int i = 0; i < faces.length; i++) {
+                Path file = dir.resolve(PanoramaStorage.faceFileName(i));
                 if (!Files.isRegularFile(file)) {
-                    closeImages(faces);
                     return false;
                 }
                 try (InputStream in = Files.newInputStream(file)) {
@@ -45,55 +46,70 @@ public class CustomCubeMapTexture extends AbstractTexture {
                 }
             }
             uploadFaces(faces);
-            this.loaded = true;
             return true;
         } catch (Exception e) {
             ModLogger.error("Failed to load custom panorama from directory {}", dir, e);
-            this.loaded = false;
             return false;
         } finally {
-            closeImages(faces);
+            PanoramaStorage.closeImages(faces);
         }
     }
 
-    public synchronized void uploadFaces(NativeImage[] faces) {
+    private void uploadFaces(NativeImage[] faces) {
+        if (faces.length != SUFFIX_MAPPING.length) {
+            throw new IllegalArgumentException("A panorama must have six faces");
+        }
         int width = faces[0].getWidth();
         int height = faces[0].getHeight();
+        if (width != height) {
+            throw new IllegalArgumentException("Panorama faces must be square");
+        }
 
-        try (NativeImage stackedImage = new NativeImage(width, height * 6, false)) {
-            for (int i = 0; i < 6; i++) {
-                int faceIndex = SUFFIX_MAPPING[i];
-                faces[faceIndex].copyRect(stackedImage, 0, 0, 0, i * height, width, height, false, true);
+        // match the readback buffer's face order and bottom-up rows
+        try (NativeImage stackedImage = new NativeImage(width, height * faces.length, false)) {
+            for (int i = 0; i < faces.length; i++) {
+                NativeImage face = faces[i];
+                if (face.getWidth() != width || face.getHeight() != height) {
+                    throw new IllegalArgumentException("Panorama faces must have matching dimensions");
+                }
+                face.copyRect(stackedImage, 0, 0, 0, i * height, width, height, false, true);
             }
 
-            GpuDevice device = RenderSystem.getDevice();
-            this.releaseTextures();
-            int usage = GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_CUBEMAP_COMPATIBLE;
-            this.texture = device.createTexture(this.id::toString, usage, GpuFormat.RGBA8_UNORM, width, height, 6, 1);
-            this.textureView = device.createTextureView(this.texture);
-            CommandEncoder encoder = device.createCommandEncoder();
+            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
             GpuBufferSlice stagingBuffer = encoder.transientMemory().uploadStaging(stackedImage.getPixelBytes(), 1L, 16);
+            uploadBuffer(encoder, stagingBuffer, width);
+        }
+    }
 
-            for (int i = 0; i < 6; i++) {
-                encoder.copyBufferToTexture(stagingBuffer, 0, height * i, stackedImage.getWidth(), stackedImage.getHeight(), this.texture, 0, 0, width, height, 0, i);
+    synchronized void uploadReadback(GpuBufferSlice readback, int faceSize) {
+        CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
+        uploadBuffer(encoder, readback, faceSize);
+    }
+
+    private void uploadBuffer(CommandEncoder encoder, GpuBufferSlice buffer, int faceSize) {
+        GpuDevice device = RenderSystem.getDevice();
+        int usage = GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_CUBEMAP_COMPATIBLE;
+        GpuTexture newTexture = device.createTexture(this.id::toString, usage, GpuFormat.RGBA8_UNORM, faceSize, faceSize, SUFFIX_MAPPING.length, 1);
+        GpuTextureView newView = null;
+        try {
+            newView = device.createTextureView(newTexture);
+            long faceBytes = (long) faceSize * faceSize * Integer.BYTES;
+            for (int layer = 0; layer < SUFFIX_MAPPING.length; layer++) {
+                GpuBufferSlice face = buffer.slice(SUFFIX_MAPPING[layer] * faceBytes, faceBytes);
+                encoder.copyBufferToTexture(face, 0, 0, faceSize, faceSize, newTexture, 0, 0, faceSize, faceSize, 0, layer);
             }
             encoder.submit();
-            this.loaded = true;
-        }
-    }
-
-    private static void closeImages(NativeImage[] faces) {
-        for (int i = 0; i < faces.length; i++) {
-            if (faces[i] != null) {
-                faces[i].close();
-                faces[i] = null;
+        } catch (RuntimeException e) {
+            if (newView != null) {
+                newView.close();
             }
+            newTexture.close();
+            throw e;
         }
+
+        this.releaseTextures();
+        this.texture = newTexture;
+        this.textureView = newView;
     }
 
-    @Override
-    public void close() {
-        super.close();
-        this.loaded = false;
-    }
 }

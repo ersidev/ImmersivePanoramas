@@ -25,8 +25,9 @@ import java.util.List;
 
 public class ConfigScreen extends Screen {
     private static final int CONTENT_WIDTH = 310;
-    private static final int TOTAL_HEIGHT = 246;
-    private static final int LIST_HEIGHT = 112;
+    private static final int TOTAL_HEIGHT = 280;
+    private static final int MAX_LIST_HEIGHT = 112;
+    private static final int LIST_ROW_HEIGHT = 28;
 
     private final Screen parent;
     private final ModConfig config;
@@ -36,7 +37,6 @@ public class ConfigScreen extends Screen {
     private int startY;
     private int titleY;
     private int hintY;
-    private int listY;
 
     public ConfigScreen(Screen parent) {
         super(Component.literal("Immersive Panoramas Settings"));
@@ -53,19 +53,21 @@ public class ConfigScreen extends Screen {
 
         this.startY = Math.max(12, (this.height - TOTAL_HEIGHT) / 2);
         this.titleY = this.startY;
-        int row1Y = this.titleY + 18;
-        int row2Y = row1Y + 24;
-        int row3Y = row2Y + 26;
-        this.hintY = row3Y + 24;
-        this.listY = this.hintY + 14;
-        int doneY = this.listY + LIST_HEIGHT + 12;
+        int modY = this.titleY + 18;
+        int resolutionY = modY + 24;
+        int captureTogglesY = resolutionY + 24;
+        int modeY = captureTogglesY + 24;
+        this.hintY = modeY + 24;
+        int listY = this.hintY + 14;
+        int listHeight = Math.clamp(this.height - listY - 44, LIST_ROW_HEIGHT, MAX_LIST_HEIGHT);
+        int doneY = listY + listHeight + 12;
 
         CycleButton<Boolean> modBtn = CycleButton.booleanBuilder(
                 Component.translatable("options.on").withStyle(ChatFormatting.GREEN),
                 Component.translatable("options.off").withStyle(ChatFormatting.RED),
                 this.config.enabled
             )
-            .create(leftX, row1Y, halfWidth, 20, Component.literal("Mod"), (btn, val) -> {
+            .create(leftX, modY, halfWidth, 20, Component.literal("Mod"), (btn, val) -> {
                 this.config.enabled = val;
                 this.config.save();
             });
@@ -77,19 +79,39 @@ public class ConfigScreen extends Screen {
                 Component.translatable("options.off").withStyle(ChatFormatting.RED),
                 this.config.alignPlayerRotation
             )
-            .create(rightX, row1Y, halfWidth, 20, Component.literal("Align View"), (btn, val) -> {
+            .create(rightX, modY, halfWidth, 20, Component.literal("Align View"), (btn, val) -> {
                 this.config.alignPlayerRotation = val;
                 this.config.save();
             });
         alignBtn.setTooltip(Tooltip.create(Component.literal("Aligns player yaw and pitch when joining a world\nto match the captured panorama's view angle.")));
         this.addRenderableWidget(alignBtn);
 
+        CycleButton<ModConfig.CaptureResolution> resolutionBtn = CycleButton.<ModConfig.CaptureResolution>builder(
+                resolution -> Component.literal(resolution == ModConfig.CaptureResolution.AUTO
+                    ? "Auto" : resolution.getFaceSize() + " px"),
+                () -> this.config.captureResolution
+            )
+            .withValues(ModConfig.CaptureResolution.values())
+            .withTooltip(resolution -> Tooltip.create(Component.literal(switch (resolution) {
+                case AUTO -> "Picks 1024–1536 px per face based on screen height and field of view.\n"
+                    + "Uses 24–54 MiB for GPU readback. Larger captures take longer, especially with shaders.";
+                case STANDARD -> "1024 × 1024 per face. Lowest GPU cost and 24 MiB for readback.";
+                case HIGH -> "1536 × 1536 per face. Renders 2.25× as many pixels as 1024 px and uses 54 MiB for GPU readback.";
+                case ULTRA -> "2048 × 2048 per face. Renders 4× as many pixels as 1024 px and uses 96 MiB for GPU readback.\n"
+                    + "Can noticeably slow exits with shaders.";
+            })))
+            .create(leftX, resolutionY, CONTENT_WIDTH, 20, Component.literal("Resolution"), (btn, val) -> {
+                this.config.captureResolution = val;
+                this.config.save();
+            });
+        this.addRenderableWidget(resolutionBtn);
+
         CycleButton<Boolean> spBtn = CycleButton.booleanBuilder(
                 Component.translatable("options.on").withStyle(ChatFormatting.GREEN),
                 Component.translatable("options.off").withStyle(ChatFormatting.RED),
                 this.config.enableSingleplayer
             )
-            .create(leftX, row2Y, halfWidth, 20, Component.literal("Singleplayer"), (btn, val) -> {
+            .create(leftX, captureTogglesY, halfWidth, 20, Component.literal("Singleplayer"), (btn, val) -> {
                 this.config.enableSingleplayer = val;
                 this.config.save();
             });
@@ -101,7 +123,7 @@ public class ConfigScreen extends Screen {
                 Component.translatable("options.off").withStyle(ChatFormatting.RED),
                 this.config.enableMultiplayer
             )
-            .create(rightX, row2Y, halfWidth, 20, Component.literal("Multiplayer"), (btn, val) -> {
+            .create(rightX, captureTogglesY, halfWidth, 20, Component.literal("Multiplayer"), (btn, val) -> {
                 this.config.enableMultiplayer = val;
                 this.config.save();
             });
@@ -120,13 +142,13 @@ public class ConfigScreen extends Screen {
                 case BLOCK_LIST -> Component.literal("Block List:\nChecked worlds and servers will be excluded from panorama capture.");
                 case ALLOW_LIST -> Component.literal("Allow List:\nONLY checked worlds and servers will have panoramas captured.");
             }))
-            .create(leftX, row3Y, CONTENT_WIDTH, 20, Component.literal("Mode"), (btn, val) -> {
+            .create(leftX, modeY, CONTENT_WIDTH, 20, Component.literal("Mode"), (btn, val) -> {
                 this.config.filterMode = val;
                 this.config.save();
             });
         this.addRenderableWidget(this.modeButton);
 
-        this.list = new FilterSelectionList(this.minecraft, CONTENT_WIDTH, LIST_HEIGHT, this.listY, 28);
+        this.list = new FilterSelectionList(this.minecraft, CONTENT_WIDTH, listHeight, listY, LIST_ROW_HEIGHT);
         this.list.setX(leftX);
         this.addRenderableWidget(this.list);
         this.populateEntries();
@@ -213,10 +235,13 @@ public class ConfigScreen extends Screen {
             : "ONLY checked worlds and servers will have panoramas:";
         graphics.centeredText(this.font, Component.literal(hint), this.width / 2, this.hintY, 0xFFAAAAAA);
 
-        graphics.fill(leftX - 1, this.listY - 1, leftX + CONTENT_WIDTH + 1, this.listY + LIST_HEIGHT + 1, 0x33FFFFFF);
-
-        if (this.list != null && this.list.children().isEmpty()) {
-            graphics.centeredText(this.font, Component.literal("No worlds or servers found."), this.width / 2, this.listY + LIST_HEIGHT / 2 - 4, 0xFFAAAAAA);
+        if (this.list != null) {
+            int listY = this.list.getY();
+            int listHeight = this.list.getHeight();
+            graphics.fill(leftX - 1, listY - 1, leftX + CONTENT_WIDTH + 1, listY + listHeight + 1, 0x33FFFFFF);
+            if (this.list.children().isEmpty()) {
+                graphics.centeredText(this.font, Component.literal("No worlds or servers found."), this.width / 2, listY + listHeight / 2 - 4, 0xFFAAAAAA);
+            }
         }
     }
 
