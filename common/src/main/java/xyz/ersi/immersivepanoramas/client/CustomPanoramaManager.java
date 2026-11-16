@@ -1,19 +1,19 @@
 package xyz.ersi.immersivepanoramas.client;
 
-import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
+import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.CubeMap;
-import net.minecraft.client.renderer.texture.TextureManager;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.storage.LevelResource;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig;
 import xyz.ersi.immersivepanoramas.mixin.client.PanoramaAccessor;
+import xyz.ersi.immersivepanoramas.mixin.client.ScreenAccessor;
 
 import java.util.Locale;
 
 public class CustomPanoramaManager {
-    public static final Identifier CUSTOM_PANORAMA_ID = Identifier.fromNamespaceAndPath("immersivepanoramas", "panorama");
+    public static final ResourceLocation CUSTOM_PANORAMA_ID = ResourceLocation.fromNamespaceAndPath("immersivepanoramas", "panorama");
 
     private static CubeMap customCubeMap;
     private static CustomCubeMapTexture customTexture;
@@ -36,26 +36,19 @@ public class CustomPanoramaManager {
         } else {
             return null;
         }
-        return world + "|" + client.level.dimension().identifier();
+        return world + "|" + client.level.dimension().location();
     }
 
     public static synchronized void init(Minecraft client) {
         if (customTexture == null) {
-            customTexture = new CustomCubeMapTexture(CUSTOM_PANORAMA_ID);
+            customTexture = new CustomCubeMapTexture(CUSTOM_PANORAMA_ID, client.getTextureManager());
         }
         if (customCubeMap == null) {
             customCubeMap = new CubeMap(CUSTOM_PANORAMA_ID);
         }
-        registerTextures(client.getTextureManager());
         if (PanoramaStorage.load(customTexture)) {
             capturedView = null;
             showCaptureAngle = false;
-        }
-    }
-
-    public static synchronized void registerTextures(TextureManager textureManager) {
-        if (customTexture != null) {
-            textureManager.register(CUSTOM_PANORAMA_ID, customTexture);
         }
     }
 
@@ -63,12 +56,12 @@ public class CustomPanoramaManager {
         return customTexture != null && customTexture.isLoaded();
     }
 
-    public static synchronized void render(float rotX, float rotY) {
+    public static synchronized void render(Minecraft client, float rotX, float rotY, float alpha) {
         if (customCubeMap != null && hasCustomPanorama()) {
-            customCubeMap.render(rotX, showCaptureAngle ? 0.0F : rotY);
+            customCubeMap.render(client, rotX, showCaptureAngle ? 0.0F : rotY, alpha);
             if (showCaptureAngle) {
                 showCaptureAngle = false;
-                ((PanoramaAccessor) Minecraft.getInstance().gameRenderer.panorama()).setSpin(0.0F);
+                ((PanoramaAccessor) ScreenAccessor.getPanorama()).setSpin(0.0F);
             }
         }
     }
@@ -82,18 +75,17 @@ public class CustomPanoramaManager {
         return view.fov();
     }
 
-    static synchronized void uploadCapture(GpuBufferSlice readback, int faceSize, String worldKey, float yaw, float pitch, float fov) {
+    static synchronized void uploadCapture(Minecraft client, NativeImage[] faces, String worldKey, float yaw, float pitch, float fov) {
         if (customTexture == null) {
-            customTexture = new CustomCubeMapTexture(CUSTOM_PANORAMA_ID);
+            customTexture = new CustomCubeMapTexture(CUSTOM_PANORAMA_ID, client.getTextureManager());
         }
         if (customCubeMap == null) {
             customCubeMap = new CubeMap(CUSTOM_PANORAMA_ID);
         }
-        registerTextures(Minecraft.getInstance().getTextureManager());
-        customTexture.uploadReadback(readback, faceSize);
+        customTexture.uploadFaces(faces);
         capturedView = new CapturedView(worldKey, yaw, Mth.clamp(pitch, -90.0F, 90.0F), fov);
         showCaptureAngle = true;
-        ModLogger.info("Uploaded custom panorama faces directly to GPU memory");
+        ModLogger.info("Uploaded custom panorama faces");
     }
 
     public static synchronized void applyPanoramaRotation(Minecraft client) {
@@ -103,10 +95,7 @@ public class CustomPanoramaManager {
             return;
         }
 
-        float currentSpin = 0.0F;
-        if (client.gameRenderer != null && client.gameRenderer.panorama() != null) {
-            currentSpin = ((PanoramaAccessor) client.gameRenderer.panorama()).getSpin();
-        }
+        float currentSpin = ((PanoramaAccessor) ScreenAccessor.getPanorama()).getSpin();
 
         float targetYaw = Mth.wrapDegrees(view.yaw() + currentSpin);
         client.player.setYRot(targetYaw);
@@ -118,19 +107,6 @@ public class CustomPanoramaManager {
         client.player.setXRot(view.pitch());
         client.player.xRotO = view.pitch();
         ModLogger.info("Aligned player with panorama at yaw {}° and pitch {}°", targetYaw, view.pitch());
-    }
-
-    public static synchronized void close() {
-        capturedView = null;
-        showCaptureAngle = false;
-        if (customCubeMap != null) {
-            customCubeMap.close();
-            customCubeMap = null;
-        }
-        if (customTexture != null) {
-            customTexture.close();
-            customTexture = null;
-        }
     }
 
     private record CapturedView(String worldKey, float yaw, float pitch, float fov) {}

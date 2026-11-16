@@ -10,10 +10,10 @@ import xyz.ersi.immersivepanoramas.client.CustomPanoramaManager;
 public class CubeMapMixin {
     @ModifyArg(
         method = "render",
-        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/Projection;setupPerspective(FFFFF)V"),
-        index = 2
+        at = @At(value = "INVOKE", target = "Lorg/joml/Matrix4f;setPerspective(FFFF)Lorg/joml/Matrix4f;", remap = false),
+        index = 0
     )
     private float matchFrozenWorldFov(float fov) {
-        return CustomPanoramaManager.getPanoramaFov((CubeMap) (Object) this, fov);
+        return (float) Math.toRadians(CustomPanoramaManager.getPanoramaFov((CubeMap) (Object) this, (float) Math.toDegrees(fov)));
     }
 }

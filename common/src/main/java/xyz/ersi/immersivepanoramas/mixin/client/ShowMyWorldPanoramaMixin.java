@@ -15,7 +15,7 @@ import xyz.ersi.immersivepanoramas.client.config.ModConfig;
 public class ShowMyWorldPanoramaMixin {
     @Inject(method = "render(FF)V", at = @At("HEAD"), cancellable = true, require = 0)
     private void skipSecondTitlePanorama(float pitch, float spin, CallbackInfo ci) {
-        if (Minecraft.getInstance().gui.screen() instanceof TitleScreen
+        if (Minecraft.getInstance().screen instanceof TitleScreen
             && ModConfig.getInstance().enabled
             && CustomPanoramaManager.hasCustomPanorama()) {
             ci.cancel();

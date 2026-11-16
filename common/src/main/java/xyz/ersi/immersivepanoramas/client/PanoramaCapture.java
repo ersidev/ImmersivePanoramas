@@ -3,26 +3,19 @@ package xyz.ersi.immersivepanoramas.client;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.renderpearl.api.GpuFormat;
-import com.mojang.renderpearl.api.buffers.GpuBuffer;
-import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
-import com.mojang.renderpearl.api.commands.CommandEncoder;
-import com.mojang.renderpearl.api.commands.GpuFence;
-import com.mojang.renderpearl.api.device.GpuDevice;
-import com.mojang.renderpearl.api.textures.GpuTexture;
 import net.minecraft.client.Camera;
 import net.minecraft.client.CameraType;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.client.renderer.Panorama;
-import net.minecraft.gizmos.Gizmos;
+import org.lwjgl.opengl.GL32C;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig.CaptureResolution;
 import xyz.ersi.immersivepanoramas.mixin.client.GameRendererAccessor;
 import xyz.ersi.immersivepanoramas.mixin.client.PanoramaAccessor;
+import xyz.ersi.immersivepanoramas.mixin.client.ScreenAccessor;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.TimeUnit;
@@ -55,7 +48,7 @@ public class PanoramaCapture {
         float pitch = view == null ? player.getXRot() : view.pitch();
         float fov = view == null ? 0.0F : view.fov();
         int faceSize = config.captureResolution == CaptureResolution.AUTO
-            ? chooseFaceSize(client.gameRenderer.mainRenderTarget().height, fov)
+            ? chooseFaceSize(client.getMainRenderTarget().height, fov)
             : config.captureResolution.getFaceSize();
         PendingCapture capture = new PendingCapture(CustomPanoramaManager.getWorldKey(client), yaw, pitch, fov, faceSize);
         isCapturing = true;
@@ -73,7 +66,7 @@ public class PanoramaCapture {
     }
 
     public static CameraView getCaptureView(Camera camera) {
-        if (captureView == null || camera != Minecraft.getInstance().gameRenderer.mainCamera()) {
+        if (captureView == null || camera != Minecraft.getInstance().gameRenderer.getMainCamera()) {
             return null;
         }
         return captureView;
@@ -90,7 +83,7 @@ public class PanoramaCapture {
     private static void captureFaces(Minecraft client, LocalPlayer player, PendingCapture capture, CameraView view) {
         int windowWidth = client.getWindow().getWidth();
         int windowHeight = client.getWindow().getHeight();
-        RenderTarget target = client.gameRenderer.mainRenderTarget();
+        RenderTarget target = client.getMainRenderTarget();
         int targetWidth = target.width;
         int targetHeight = target.height;
         float pitch = player.getXRot();
@@ -99,47 +92,38 @@ public class PanoramaCapture {
         float previousPitch = player.xRotO;
         float previousYaw = player.yRotO;
         CameraType cameraType = client.options.getCameraType();
-        Camera camera = client.gameRenderer.mainCamera();
-        boolean wasPanoramic = camera.isPanoramicMode();
+        boolean wasPanoramic = client.gameRenderer.isPanoramicMode();
         boolean renderBlockOutline = ((GameRendererAccessor) client.gameRenderer).isRenderBlockOutline();
         boolean shadersActive = IrisCompat.isShaderPackInUse();
         int faceSize = capture.faceSize;
         int faceBytes = faceSize * faceSize * Integer.BYTES;
         Vec3 position = view == null ? null : view.position();
 
+        int previousPackBuffer = GL32C.glGetInteger(GL32C.GL_PIXEL_PACK_BUFFER_BINDING);
+
         try {
             client.gameRenderer.setRenderBlockOutline(false);
             client.options.setCameraType(CameraType.FIRST_PERSON);
-            if (!wasPanoramic) {
-                camera.enablePanoramicMode();
-            }
+            client.gameRenderer.setPanoramicMode(true);
+            client.levelRenderer.graphicsChanged();
 
             if (view != null) {
-                renderView(client, view);
+                renderView(client, target, view);
                 FrozenWorldRenderer.freeze(target);
-                RenderSystem.getDynamicUniforms().reset();
             }
 
             client.getWindow().setWidth(faceSize);
             client.getWindow().setHeight(faceSize);
-            target.resize(faceSize, faceSize);
+            target.resize(faceSize, faceSize, Minecraft.ON_OSX);
 
-            GpuTexture colorTexture = target.getColorTexture();
-            if (colorTexture == null || colorTexture.getFormat() != GpuFormat.RGBA8_UNORM) {
-                throw new IllegalStateException("Panorama capture requires an RGBA8 main render target");
-            }
-
-            GpuDevice device = RenderSystem.getDevice();
-            capture.buffer = device.createBuffer(
-                () -> "Panorama capture",
-                GpuBuffer.USAGE_MAP_READ | GpuBuffer.USAGE_COPY_DST | GpuBuffer.USAGE_COPY_SRC,
-                (long) faceBytes * FACE_COUNT
-            );
+            capture.buffer = GL32C.glGenBuffers();
+            GL32C.glBindBuffer(GL32C.GL_PIXEL_PACK_BUFFER, capture.buffer);
+            GL32C.glBufferData(GL32C.GL_PIXEL_PACK_BUFFER, (long) faceBytes * FACE_COUNT, GL32C.GL_STREAM_READ);
+            GL32C.glBindBuffer(GL32C.GL_PIXEL_PACK_BUFFER, previousPackBuffer);
 
             if (shadersActive) {
                 // turn the camera once after resizing so the first saved face rejects stale shader history
-                position = renderFace(client, player, (yaw - 90.0F) % 360.0F, 0.0F, position);
-                RenderSystem.getDynamicUniforms().reset();
+                position = renderFace(client, player, target, (yaw - 90.0F) % 360.0F, 0.0F, position);
             }
 
             for (int i = 0; i < FACE_COUNT; i++) {
@@ -154,15 +138,18 @@ public class PanoramaCapture {
                     case 5 -> 90.0F;
                     default -> 0.0F;
                 };
-                position = renderFace(client, player, faceYaw, facePitch, position);
-
-                CommandEncoder encoder = device.createCommandEncoder();
-                encoder.copyTextureToBuffer(colorTexture, capture.buffer, (long) i * faceBytes, () -> {}, 0);
-                if (i == FACE_COUNT - 1) {
-                    capture.fence = encoder.createFence();
+                position = renderFace(client, player, target, faceYaw, facePitch, position);
+                target.bindWrite(false);
+                GL32C.glBindBuffer(GL32C.GL_PIXEL_PACK_BUFFER, capture.buffer);
+                try {
+                    GL32C.glReadPixels(0, 0, faceSize, faceSize, GL32C.GL_RGBA, GL32C.GL_UNSIGNED_BYTE, (long) i * faceBytes);
+                } finally {
+                    GL32C.glBindBuffer(GL32C.GL_PIXEL_PACK_BUFFER, previousPackBuffer);
                 }
-                encoder.submit();
-                RenderSystem.getDynamicUniforms().reset();
+            }
+            capture.fence = GL32C.glFenceSync(GL32C.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+            if (capture.fence == 0) {
+                throw new IllegalStateException("Could not fence panorama readback");
             }
         } finally {
             player.setXRot(pitch);
@@ -173,29 +160,29 @@ public class PanoramaCapture {
             client.gameRenderer.setRenderBlockOutline(renderBlockOutline);
             client.getWindow().setWidth(windowWidth);
             client.getWindow().setHeight(windowHeight);
-            if (!wasPanoramic) {
-                camera.disablePanoramicMode();
-            }
-            target.resize(targetWidth, targetHeight);
+            client.gameRenderer.setPanoramicMode(wasPanoramic);
+            client.levelRenderer.graphicsChanged();
+            target.resize(targetWidth, targetHeight, Minecraft.ON_OSX);
+            target.bindWrite(true);
         }
     }
 
-    private static Vec3 renderFace(Minecraft client, LocalPlayer player, float yaw, float pitch, Vec3 position) {
+    private static Vec3 renderFace(Minecraft client, LocalPlayer player, RenderTarget target, float yaw, float pitch, Vec3 position) {
         player.setYRot(yaw);
         player.setXRot(pitch);
         player.yRotO = player.getYRot();
         player.xRotO = player.getXRot();
-        return renderView(client, new CameraView(position, yaw, pitch, 90.0F));
+        return renderView(client, target, new CameraView(position, yaw, pitch, 90.0F));
     }
 
-    private static Vec3 renderView(Minecraft client, CameraView view) {
+    private static Vec3 renderView(Minecraft client, RenderTarget target, CameraView view) {
         captureView = view;
-        try (Gizmos.TemporaryCollection gizmos = client.levelExtractor.collectPerFrameMainThreadGizmos()) {
-            client.gameRenderer.update(DeltaTracker.ONE);
-            Vec3 position = client.gameRenderer.mainCamera().position();
-            client.gameRenderer.extract(DeltaTracker.ONE, true);
-            client.gameRenderer.renderLevel();
-            return position;
+        try {
+            // shader post-processing can leave depth writes disabled
+            RenderSystem.depthMask(true);
+            target.bindWrite(true);
+            client.gameRenderer.renderLevel(DeltaTracker.ONE);
+            return client.gameRenderer.getMainCamera().getPosition();
         } finally {
             captureView = null;
         }
@@ -209,7 +196,11 @@ public class PanoramaCapture {
 
         NativeImage[] faces = null;
         try {
-            if (!capture.fence.awaitCompletion(0L)) {
+            int status = GL32C.glClientWaitSync(capture.fence, GL32C.GL_SYNC_FLUSH_COMMANDS_BIT, 0);
+            if (status == GL32C.GL_WAIT_FAILED) {
+                throw new IllegalStateException("Could not wait for panorama readback");
+            }
+            if (status == GL32C.GL_TIMEOUT_EXPIRED) {
                 if (System.nanoTime() - capture.submittedAt > READBACK_TIMEOUT) {
                     throw new IllegalStateException("Timed out waiting for panorama readback");
                 }
@@ -221,28 +212,35 @@ public class PanoramaCapture {
             int rowBytes = faceSize * Integer.BYTES;
             int faceBytes = faceSize * rowBytes;
             try (capture) {
-                try (GpuBufferSlice.MappedView view = capture.buffer.map(true, false)) {
-                    ByteBuffer pixels = view.data();
-                    for (int i = 0; i < FACE_COUNT; i++) {
-                        NativeImage face = new NativeImage(faceSize, faceSize, false);
-                        faces[i] = face;
-                        ByteBuffer destination = face.getPixelBytes();
-                        int faceOffset = i * faceBytes;
-                        for (int y = faceSize - 1; y >= 0; y--) {
-                            int rowOffset = faceOffset + y * rowBytes;
-                            int destinationOffset = (faceSize - 1 - y) * rowBytes;
-                            destination.put(destinationOffset, pixels, rowOffset, rowBytes);
-                        }
+                int previousPackBuffer = GL32C.glGetInteger(GL32C.GL_PIXEL_PACK_BUFFER_BINDING);
+                GL32C.glBindBuffer(GL32C.GL_PIXEL_PACK_BUFFER, capture.buffer);
+                try {
+                    ByteBuffer pixels = GL32C.glMapBufferRange(GL32C.GL_PIXEL_PACK_BUFFER, 0, (long) faceBytes * FACE_COUNT, GL32C.GL_MAP_READ_BIT);
+                    if (pixels == null) {
+                        throw new IllegalStateException("Could not map panorama readback");
                     }
+                    try {
+                        for (int i = 0; i < FACE_COUNT; i++) {
+                            NativeImage face = new NativeImage(faceSize, faceSize, false);
+                            faces[i] = face;
+                            ByteBuffer destination = PanoramaStorage.pixels(face);
+                            int faceOffset = i * faceBytes;
+                            for (int y = faceSize - 1; y >= 0; y--) {
+                                int rowOffset = faceOffset + y * rowBytes;
+                                int destinationOffset = (faceSize - 1 - y) * rowBytes;
+                                destination.put(destinationOffset, pixels, rowOffset, rowBytes);
+                            }
+                        }
+                    } finally {
+                        GL32C.glUnmapBuffer(GL32C.GL_PIXEL_PACK_BUFFER);
+                    }
+                } finally {
+                    GL32C.glBindBuffer(GL32C.GL_PIXEL_PACK_BUFFER, previousPackBuffer);
                 }
-                CustomPanoramaManager.uploadCapture(capture.buffer.slice(), faceSize, capture.worldKey, capture.yaw, capture.pitch, capture.fov);
             }
 
-            Panorama panorama = client.gameRenderer.panorama();
-            if (panorama != null) {
-                ((PanoramaAccessor) panorama).setSpin(0.0F);
-                panorama.startSpin();
-            }
+            CustomPanoramaManager.uploadCapture(client, faces, capture.worldKey, capture.yaw, capture.pitch, capture.fov);
+            ((PanoramaAccessor) ScreenAccessor.getPanorama()).setSpin(0.0F);
             PanoramaStorage.queueSave(faces);
             faces = null;
         } catch (Exception e) {
@@ -278,8 +276,8 @@ public class PanoramaCapture {
         private final float fov;
         private final int faceSize;
         private long submittedAt;
-        private GpuBuffer buffer;
-        private GpuFence fence;
+        private int buffer;
+        private long fence;
 
         private PendingCapture(String worldKey, float yaw, float pitch, float fov, int faceSize) {
             this.worldKey = worldKey;
@@ -292,12 +290,12 @@ public class PanoramaCapture {
         @Override
         public void close() {
             try {
-                if (fence != null) {
-                    fence.close();
+                if (fence != 0) {
+                    GL32C.glDeleteSync(fence);
                 }
             } finally {
-                if (buffer != null) {
-                    buffer.close();
+                if (buffer != 0) {
+                    GL32C.glDeleteBuffers(buffer);
                 }
             }
         }

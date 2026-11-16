@@ -20,7 +20,7 @@ public class ClientPacketListenerMixin {
 
     @Inject(
         method = "handleMovePlayer",
-        at = @At(value = "INVOKE", target = "Lnet/minecraft/network/protocol/game/ClientboundPlayerPositionPacket;id()I")
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/network/protocol/game/ClientboundPlayerPositionPacket;getId()I")
     )
     private void onHandleMovePlayerPosition(ClientboundPlayerPositionPacket packet, CallbackInfo ci) {
         if (!this.immersivepanoramas$initialPositionReceived) {

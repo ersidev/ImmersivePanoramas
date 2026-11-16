@@ -24,6 +24,19 @@ public final class IrisCompat {
         }
     }
 
+    public static boolean isRenderingShadowPass() {
+        try {
+            Class<?> irisApi = Class.forName("net.irisshaders.iris.api.v0.IrisApi");
+            Object instance = irisApi.getMethod("getInstance").invoke(null);
+            return (boolean) irisApi.getMethod("isRenderingShadowPass").invoke(instance);
+        } catch (ClassNotFoundException e) {
+            return false;
+        } catch (ReflectiveOperationException | LinkageError e) {
+            ModLogger.warn("Could not query Iris shadow pass state", e);
+            return false;
+        }
+    }
+
     public static void registerCaptureUniform(Object uniformHolder) {
         try {
             Class<?> holderType = Class.forName("net.irisshaders.iris.gl.uniform.UniformHolder");
