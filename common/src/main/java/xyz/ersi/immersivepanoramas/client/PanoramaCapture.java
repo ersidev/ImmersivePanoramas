@@ -33,10 +33,10 @@ public class PanoramaCapture {
     private static final long READBACK_TIMEOUT = TimeUnit.SECONDS.toNanos(10);
 
     private static boolean isCapturing;
-    private static Vec3 captureCameraPosition;
+    private static CameraView captureView;
     private static PendingCapture pendingCapture;
 
-    static boolean isCapturing() {
+    public static boolean isCapturing() {
         return isCapturing;
     }
 
@@ -50,7 +50,7 @@ public class PanoramaCapture {
             return;
         }
 
-        FrozenWorldRenderer.View view = FrozenWorldRenderer.getCapturedView(client);
+        CameraView view = FrozenWorldRenderer.getCapturedView(client);
         float yaw = view == null ? player.getYRot() : view.yaw();
         float pitch = view == null ? player.getXRot() : view.pitch();
         float fov = view == null ? 0.0F : view.fov();
@@ -72,11 +72,11 @@ public class PanoramaCapture {
         }
     }
 
-    public static Vec3 getCaptureCameraPosition(Camera camera) {
-        if (captureCameraPosition == null || camera != Minecraft.getInstance().gameRenderer.mainCamera()) {
+    public static CameraView getCaptureView(Camera camera) {
+        if (captureView == null || camera != Minecraft.getInstance().gameRenderer.mainCamera()) {
             return null;
         }
-        return captureCameraPosition;
+        return captureView;
     }
 
     private static int chooseFaceSize(int framebufferHeight, float fov) {
@@ -87,7 +87,7 @@ public class PanoramaCapture {
         return (int) Math.ceil(boundedPixels / FACE_SIZE_STEP) * FACE_SIZE_STEP;
     }
 
-    private static void captureFaces(Minecraft client, LocalPlayer player, PendingCapture capture, FrozenWorldRenderer.View view) {
+    private static void captureFaces(Minecraft client, LocalPlayer player, PendingCapture capture, CameraView view) {
         int windowWidth = client.getWindow().getWidth();
         int windowHeight = client.getWindow().getHeight();
         RenderTarget target = client.gameRenderer.mainRenderTarget();
@@ -105,14 +105,21 @@ public class PanoramaCapture {
         boolean shadersActive = IrisCompat.isShaderPackInUse();
         int faceSize = capture.faceSize;
         int faceBytes = faceSize * faceSize * Integer.BYTES;
+        Vec3 position = view == null ? null : view.position();
 
         try {
-            captureCameraPosition = view == null ? null : view.position();
             client.gameRenderer.setRenderBlockOutline(false);
             client.options.setCameraType(CameraType.FIRST_PERSON);
             if (!wasPanoramic) {
                 camera.enablePanoramicMode();
             }
+
+            if (view != null) {
+                renderView(client, view);
+                FrozenWorldRenderer.freeze(target);
+                RenderSystem.getDynamicUniforms().reset();
+            }
+
             client.getWindow().setWidth(faceSize);
             client.getWindow().setHeight(faceSize);
             target.resize(faceSize, faceSize);
@@ -131,7 +138,7 @@ public class PanoramaCapture {
 
             if (shadersActive) {
                 // turn the camera once after resizing so the first saved face rejects stale shader history
-                renderFace(client, player, (yaw - 90.0F) % 360.0F, 0.0F);
+                position = renderFace(client, player, (yaw - 90.0F) % 360.0F, 0.0F, position);
                 RenderSystem.getDynamicUniforms().reset();
             }
 
@@ -147,7 +154,7 @@ public class PanoramaCapture {
                     case 5 -> 90.0F;
                     default -> 0.0F;
                 };
-                renderFace(client, player, faceYaw, facePitch);
+                position = renderFace(client, player, faceYaw, facePitch, position);
 
                 CommandEncoder encoder = device.createCommandEncoder();
                 encoder.copyTextureToBuffer(colorTexture, capture.buffer, (long) i * faceBytes, () -> {}, 0);
@@ -158,7 +165,6 @@ public class PanoramaCapture {
                 RenderSystem.getDynamicUniforms().reset();
             }
         } finally {
-            captureCameraPosition = null;
             player.setXRot(pitch);
             player.setYRot(originalYaw);
             player.xRotO = previousPitch;
@@ -174,16 +180,24 @@ public class PanoramaCapture {
         }
     }
 
-    private static void renderFace(Minecraft client, LocalPlayer player, float yaw, float pitch) {
+    private static Vec3 renderFace(Minecraft client, LocalPlayer player, float yaw, float pitch, Vec3 position) {
         player.setYRot(yaw);
         player.setXRot(pitch);
         player.yRotO = player.getYRot();
         player.xRotO = player.getXRot();
+        return renderView(client, new CameraView(position, yaw, pitch, 90.0F));
+    }
 
+    private static Vec3 renderView(Minecraft client, CameraView view) {
+        captureView = view;
         try (Gizmos.TemporaryCollection gizmos = client.levelExtractor.collectPerFrameMainThreadGizmos()) {
             client.gameRenderer.update(DeltaTracker.ONE);
+            Vec3 position = client.gameRenderer.mainCamera().position();
             client.gameRenderer.extract(DeltaTracker.ONE, true);
             client.gameRenderer.renderLevel();
+            return position;
+        } finally {
+            captureView = null;
         }
     }
 
@@ -254,6 +268,8 @@ public class PanoramaCapture {
             capture.close();
         }
     }
+
+    public record CameraView(Vec3 position, float yaw, float pitch, float fov) {}
 
     private static final class PendingCapture implements AutoCloseable {
         private final String worldKey;

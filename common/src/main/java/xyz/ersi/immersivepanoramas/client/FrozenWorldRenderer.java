@@ -19,7 +19,7 @@ import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.state.gui.PanoramaRenderState;
-import net.minecraft.world.phys.Vec3;
+import xyz.ersi.immersivepanoramas.client.PanoramaCapture.CameraView;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig;
 import xyz.ersi.immersivepanoramas.mixin.client.PanoramaAccessor;
 
@@ -29,7 +29,7 @@ public final class FrozenWorldRenderer {
     private static GpuTexture texture;
     private static GpuTextureView textureView;
     private static ClientLevel capturedLevel;
-    private static View capturedView;
+    private static CameraView capturedView;
     private static Screen disconnectScreen;
     private static Screen savingScreen;
     private static boolean exiting;
@@ -47,14 +47,18 @@ public final class FrozenWorldRenderer {
         } else if (!exiting) {
             if (renderedWorld && client.level != null && screen instanceof PauseScreen
                 && ModConfig.getInstance().isAllowed(client)) {
-                capture(client, client.gameRenderer.mainRenderTarget());
+                Camera camera = client.gameRenderer.mainCamera();
+                capturedLevel = client.level;
+                capturedView = camera.isInitialized()
+                    ? new CameraView(camera.position(), camera.yRot(), camera.xRot(), camera.getFov())
+                    : null;
             } else if (!(screen instanceof PauseScreen) || capturedLevel != client.level) {
                 clear();
             }
         }
     }
 
-    private static void capture(Minecraft client, RenderTarget target) {
+    static void freeze(RenderTarget target) {
         GpuTexture source = target.getColorTexture();
         if (source == null) {
             clear();
@@ -67,7 +71,7 @@ public final class FrozenWorldRenderer {
             GpuDevice device = RenderSystem.getDevice();
             if (texture == null || texture.getWidth(0) != width || texture.getHeight(0) != height
                 || texture.getFormat() != source.getFormat()) {
-                clear();
+                closeTexture();
                 int usage = GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_DST;
                 texture = device.createTexture(() -> "Frozen world frame", usage, source.getFormat(), width, height, 1, 1);
                 textureView = device.createTextureView(texture);
@@ -76,11 +80,6 @@ public final class FrozenWorldRenderer {
             CommandEncoder encoder = device.createCommandEncoder();
             encoder.copyTextureToTexture(source, texture, 0, 0, 0, 0, 0, width, height);
             encoder.submit();
-            capturedLevel = client.level;
-            Camera camera = client.gameRenderer.mainCamera();
-            capturedView = client.options.getCameraType().isFirstPerson() && camera.isInitialized()
-                ? new View(camera.position(), camera.yRot(), camera.xRot(), camera.getFov())
-                : null;
         } catch (Exception e) {
             ModLogger.error("Failed to copy frozen world frame", e);
             clear();
@@ -122,7 +121,7 @@ public final class FrozenWorldRenderer {
         return PanoramaCapture.hasPendingCapture() && (screen instanceof TitleScreen || screen instanceof JoinMultiplayerScreen);
     }
 
-    static View getCapturedView(Minecraft client) {
+    static CameraView getCapturedView(Minecraft client) {
         return capturedLevel == client.level ? capturedView : null;
     }
 
@@ -155,6 +154,10 @@ public final class FrozenWorldRenderer {
     public static void clear() {
         capturedLevel = null;
         capturedView = null;
+        closeTexture();
+    }
+
+    private static void closeTexture() {
         if (textureView != null) {
             textureView.close();
             textureView = null;
@@ -164,6 +167,4 @@ public final class FrozenWorldRenderer {
             texture = null;
         }
     }
-
-    record View(Vec3 position, float yaw, float pitch, float fov) {}
 }

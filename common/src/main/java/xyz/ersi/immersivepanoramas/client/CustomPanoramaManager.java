@@ -18,6 +18,7 @@ public class CustomPanoramaManager {
     private static CubeMap customCubeMap;
     private static CustomCubeMapTexture customTexture;
     private static CapturedView capturedView;
+    private static boolean showCaptureAngle;
 
     public static float getSavedPitch() {
         return capturedView == null ? 10.0F : capturedView.pitch();
@@ -48,6 +49,7 @@ public class CustomPanoramaManager {
         registerTextures(client.getTextureManager());
         if (PanoramaStorage.load(customTexture)) {
             capturedView = null;
+            showCaptureAngle = false;
         }
     }
 
@@ -63,7 +65,11 @@ public class CustomPanoramaManager {
 
     public static synchronized void render(float rotX, float rotY) {
         if (customCubeMap != null && hasCustomPanorama()) {
-            customCubeMap.render(rotX, rotY);
+            customCubeMap.render(rotX, showCaptureAngle ? 0.0F : rotY);
+            if (showCaptureAngle) {
+                showCaptureAngle = false;
+                ((PanoramaAccessor) Minecraft.getInstance().gameRenderer.panorama()).setSpin(0.0F);
+            }
         }
     }
 
@@ -86,6 +92,7 @@ public class CustomPanoramaManager {
         registerTextures(Minecraft.getInstance().getTextureManager());
         customTexture.uploadReadback(readback, faceSize);
         capturedView = new CapturedView(worldKey, yaw, Mth.clamp(pitch, -90.0F, 90.0F), fov);
+        showCaptureAngle = true;
         ModLogger.info("Uploaded custom panorama faces directly to GPU memory");
     }
 
@@ -115,6 +122,7 @@ public class CustomPanoramaManager {
 
     public static synchronized void close() {
         capturedView = null;
+        showCaptureAngle = false;
         if (customCubeMap != null) {
             customCubeMap.close();
             customCubeMap = null;

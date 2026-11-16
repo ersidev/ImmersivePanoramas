@@ -7,6 +7,7 @@
   ],
   "client": [
     "client.CameraMixin",
+    "client.EntityRenderDispatcherMixin",
     "client.MinecraftMixin",
     "client.GameRendererMixin",
     "client.GameRendererAccessor",
@@ -14,6 +15,7 @@
     "client.CubeMapMixin",
     "client.IrisExclusiveUniformsMixin",
     "client.IrisProgramSourceMixin",
+    "client.IrisShadowRendererMixin",
     "client.ShowMyWorldPanoramaMixin",
     "client.PanoramaAccessor",
     "client.ScreenMixin",
