@@ -1,19 +1,22 @@
 plugins {
     id 'multiloader-loader'
-    id 'net.fabricmc.fabric-loom'
+    id 'net.fabricmc.fabric-loom-remap'
 }
 
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
-    implementation "net.fabricmc:fabric-loader:${loader_version}"
-    compileOnly "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
 
-    compileOnly "com.terraformersmc:modmenu:${modmenu_version}"
-    localRuntime "com.terraformersmc:modmenu:${modmenu_version}"
+    modCompileOnly "com.terraformersmc:modmenu:${modmenu_version}"
+    modLocalRuntime "com.terraformersmc:modmenu:${modmenu_version}"
+    modLocalRuntime "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
 }
 
 loom {
-    mixin {
-        defaultRefmapName.set("${mod_id}.refmap.json")
+    mods {
+        "${mod_id}" {
+            sourceSet sourceSets.main
+        }
     }
 }

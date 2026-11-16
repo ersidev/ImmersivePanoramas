@@ -2,13 +2,12 @@ package xyz.ersi.immersivepanoramas.client;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.renderpearl.api.GpuFormat;
-import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
-import com.mojang.renderpearl.api.commands.CommandEncoder;
-import com.mojang.renderpearl.api.device.GpuDevice;
-import com.mojang.renderpearl.api.textures.FilterMode;
-import com.mojang.renderpearl.api.textures.GpuTexture;
-import com.mojang.renderpearl.api.textures.GpuTextureView;
+import com.mojang.blaze3d.systems.CommandEncoder;
+import com.mojang.blaze3d.systems.GpuDevice;
+import com.mojang.blaze3d.textures.FilterMode;
+import com.mojang.blaze3d.textures.GpuTexture;
+import com.mojang.blaze3d.textures.GpuTextureView;
+import com.mojang.blaze3d.textures.TextureFormat;
 import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.resources.Identifier;
 import java.io.InputStream;
@@ -55,50 +54,32 @@ public class CustomCubeMapTexture extends AbstractTexture {
         }
     }
 
-    private void uploadFaces(NativeImage[] faces) {
+    synchronized void uploadFaces(NativeImage[] faces) {
         if (faces.length != SUFFIX_MAPPING.length) {
             throw new IllegalArgumentException("A panorama must have six faces");
         }
-        int width = faces[0].getWidth();
-        int height = faces[0].getHeight();
-        if (width != height) {
+        int faceSize = faces[0].getWidth();
+        if (faceSize != faces[0].getHeight()) {
             throw new IllegalArgumentException("Panorama faces must be square");
         }
-
-        // match the readback buffer's face order and bottom-up rows
-        try (NativeImage stackedImage = new NativeImage(width, height * faces.length, false)) {
-            for (int i = 0; i < faces.length; i++) {
-                NativeImage face = faces[i];
-                if (face.getWidth() != width || face.getHeight() != height) {
-                    throw new IllegalArgumentException("Panorama faces must have matching dimensions");
-                }
-                face.copyRect(stackedImage, 0, 0, 0, i * height, width, height, false, true);
+        for (NativeImage face : faces) {
+            if (face.getWidth() != faceSize || face.getHeight() != faceSize) {
+                throw new IllegalArgumentException("Panorama faces must have matching dimensions");
             }
-
-            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-            GpuBufferSlice stagingBuffer = encoder.transientMemory().uploadStaging(stackedImage.getPixelBytes(), 1L, 16);
-            uploadBuffer(encoder, stagingBuffer, width);
         }
-    }
 
-    synchronized void uploadReadback(GpuBufferSlice readback, int faceSize) {
-        CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-        uploadBuffer(encoder, readback, faceSize);
-    }
-
-    private void uploadBuffer(CommandEncoder encoder, GpuBufferSlice buffer, int faceSize) {
         GpuDevice device = RenderSystem.getDevice();
         int usage = GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_CUBEMAP_COMPATIBLE;
-        GpuTexture newTexture = device.createTexture(this.id::toString, usage, GpuFormat.RGBA8_UNORM, faceSize, faceSize, SUFFIX_MAPPING.length, 1);
+        GpuTexture newTexture = device.createTexture(this.id::toString, usage, TextureFormat.RGBA8, faceSize, faceSize, SUFFIX_MAPPING.length, 1);
         GpuTextureView newView = null;
-        try {
+        // match the readback buffer's face order and bottom-up rows
+        try (NativeImage flippedFace = new NativeImage(faceSize, faceSize, false)) {
             newView = device.createTextureView(newTexture);
-            long faceBytes = (long) faceSize * faceSize * Integer.BYTES;
+            CommandEncoder encoder = device.createCommandEncoder();
             for (int layer = 0; layer < SUFFIX_MAPPING.length; layer++) {
-                GpuBufferSlice face = buffer.slice(SUFFIX_MAPPING[layer] * faceBytes, faceBytes);
-                encoder.copyBufferToTexture(face, 0, 0, faceSize, faceSize, newTexture, 0, 0, faceSize, faceSize, 0, layer);
+                faces[SUFFIX_MAPPING[layer]].copyRect(flippedFace, 0, 0, 0, 0, faceSize, faceSize, false, true);
+                encoder.writeToTexture(newTexture, flippedFace, 0, layer, 0, 0, faceSize, faceSize, 0, 0);
             }
-            encoder.submit();
         } catch (RuntimeException e) {
             if (newView != null) {
                 newView.close();
@@ -107,9 +88,8 @@ public class CustomCubeMapTexture extends AbstractTexture {
             throw e;
         }
 
-        this.releaseTextures();
+        super.close();
         this.texture = newTexture;
         this.textureView = newView;
     }
-
 }

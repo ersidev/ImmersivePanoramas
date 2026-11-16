@@ -10,7 +10,7 @@ import xyz.ersi.immersivepanoramas.client.CustomPanoramaManager;
 public class CubeMapMixin {
     @ModifyArg(
         method = "render",
-        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/Projection;setupPerspective(FFFFF)V"),
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/CachedPerspectiveProjectionMatrixBuffer;getBuffer(IIF)Lcom/mojang/blaze3d/buffers/GpuBufferSlice;"),
         index = 2
     )
     private float matchFrozenWorldFov(float fov) {

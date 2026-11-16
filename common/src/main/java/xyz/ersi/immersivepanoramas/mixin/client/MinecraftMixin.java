@@ -4,7 +4,6 @@ import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.main.GameConfig;
 import org.spongepowered.asm.mixin.Mixin;
@@ -36,6 +35,7 @@ public class MinecraftMixin {
     private void onClose(CallbackInfo ci) {
         PanoramaCapture.close();
         FrozenWorldRenderer.endExit();
+        CustomPanoramaManager.close();
     }
 
     @WrapMethod(method = "disconnect(Lnet/minecraft/client/gui/screens/Screen;ZZ)V")
@@ -62,11 +62,22 @@ public class MinecraftMixin {
     }
 
     @WrapOperation(
-        method = "disconnect(Lnet/minecraft/client/gui/screens/Screen;ZZ)V",
-        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/Gui;setScreen(Lnet/minecraft/client/gui/screens/Screen;)V")
+        method = "setScreenAndShow",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Minecraft;runTick(Z)V")
     )
-    private void trackSavingScreen(Gui gui, Screen screen, Operation<Void> original) {
+    private void skipMultiplayerProgressFrame(Minecraft client, boolean advanceGameTime, Operation<Void> original) {
+        // keep the pause menu visible until the multiplayer menu is ready
+        if (!FrozenWorldRenderer.shouldSkipMultiplayerProgressFrame(client)) {
+            original.call(client, advanceGameTime);
+        }
+    }
+
+    @WrapOperation(
+        method = "disconnect(Lnet/minecraft/client/gui/screens/Screen;ZZ)V",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Minecraft;setScreen(Lnet/minecraft/client/gui/screens/Screen;)V")
+    )
+    private void trackSavingScreen(Minecraft client, Screen screen, Operation<Void> original) {
         FrozenWorldRenderer.setSavingScreen(screen);
-        original.call(gui, screen);
+        original.call(client, screen);
     }
 }

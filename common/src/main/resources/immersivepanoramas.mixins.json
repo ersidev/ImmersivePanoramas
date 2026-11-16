@@ -6,12 +6,12 @@
   "mixins": [
   ],
   "client": [
-    "client.CameraMixin",
+    "client.CameraAccessor",
     "client.EntityRenderDispatcherMixin",
     "client.MinecraftMixin",
     "client.GameRendererMixin",
     "client.GameRendererAccessor",
-    "client.GuiRendererMixin",
+    "client.PanoramaRendererMixin",
     "client.CubeMapMixin",
     "client.IrisExclusiveUniformsMixin",
     "client.IrisProgramSourceMixin",

@@ -2,12 +2,12 @@ package xyz.ersi.immersivepanoramas.client;
 
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.renderpearl.api.commands.CommandEncoder;
-import com.mojang.renderpearl.api.commands.RenderPass;
-import com.mojang.renderpearl.api.device.GpuDevice;
-import com.mojang.renderpearl.api.textures.FilterMode;
-import com.mojang.renderpearl.api.textures.GpuTexture;
-import com.mojang.renderpearl.api.textures.GpuTextureView;
+import com.mojang.blaze3d.systems.CommandEncoder;
+import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.blaze3d.systems.GpuDevice;
+import com.mojang.blaze3d.textures.FilterMode;
+import com.mojang.blaze3d.textures.GpuTexture;
+import com.mojang.blaze3d.textures.GpuTextureView;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.GenericMessageScreen;
@@ -18,12 +18,11 @@ import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.RenderPipelines;
-import net.minecraft.client.renderer.state.gui.PanoramaRenderState;
 import xyz.ersi.immersivepanoramas.client.PanoramaCapture.CameraView;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig;
-import xyz.ersi.immersivepanoramas.mixin.client.PanoramaAccessor;
+import xyz.ersi.immersivepanoramas.mixin.client.GameRendererAccessor;
 
-import java.util.Optional;
+import java.util.OptionalInt;
 
 public final class FrozenWorldRenderer {
     private static GpuTexture texture;
@@ -36,26 +35,25 @@ public final class FrozenWorldRenderer {
 
     private FrozenWorldRenderer() {}
 
-    public static void beforeGui(Minecraft client, boolean renderedWorld) {
-        Screen screen = client.gui.screen();
-        if (showsFrozenWorld(screen)) {
-            if (!blit(client.gameRenderer.mainRenderTarget())) {
-                // screen extraction skipped the panorama, restore its draw before the GUI renders
-                float spin = ((PanoramaAccessor) client.gameRenderer.panorama()).getSpin();
-                client.gameRenderer.gameRenderState().guiRenderState.panoramaRenderState = new PanoramaRenderState(-spin);
-            }
-        } else if (!exiting) {
+    public static void beforeGui(Minecraft client, boolean renderedWorld, float partialTick) {
+        Screen screen = client.screen;
+        if (!exiting && !showsFrozenWorld(screen)) {
             if (renderedWorld && client.level != null && screen instanceof PauseScreen
                 && ModConfig.getInstance().isAllowed(client)) {
-                Camera camera = client.gameRenderer.mainCamera();
+                Camera camera = client.gameRenderer.getMainCamera();
                 capturedLevel = client.level;
                 capturedView = camera.isInitialized()
-                    ? new CameraView(camera.position(), camera.yRot(), camera.xRot(), camera.getFov())
+                    ? new CameraView(camera.position(), camera.yRot(), camera.xRot(),
+                        ((GameRendererAccessor) client.gameRenderer).captureFov(camera, partialTick, true))
                     : null;
             } else if (!(screen instanceof PauseScreen) || capturedLevel != client.level) {
                 clear();
             }
         }
+    }
+
+    public static boolean renderBackground(Screen screen) {
+        return showsFrozenWorld(screen) && blit(Minecraft.getInstance().getMainRenderTarget());
     }
 
     static void freeze(RenderTarget target) {
@@ -79,7 +77,6 @@ public final class FrozenWorldRenderer {
 
             CommandEncoder encoder = device.createCommandEncoder();
             encoder.copyTextureToTexture(source, texture, 0, 0, 0, 0, 0, width, height);
-            encoder.submit();
         } catch (Exception e) {
             ModLogger.error("Failed to copy frozen world frame", e);
             clear();
@@ -110,6 +107,12 @@ public final class FrozenWorldRenderer {
         }
     }
 
+    public static boolean shouldSkipMultiplayerProgressFrame(Minecraft client) {
+        Screen screen = client.screen;
+        return screen != null && screen.getClass() == ProgressScreen.class && !client.isLocalServer()
+            && PanoramaCapture.hasPendingCapture() && showsFrozenWorld(screen);
+    }
+
     public static boolean showsFrozenWorld(Screen screen) {
         if (textureView == null || screen == null) {
             return false;
@@ -136,13 +139,12 @@ public final class FrozenWorldRenderer {
             CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
             // this vanilla pass copies RGB even when the world texture has zero alpha
             try (RenderPass pass = encoder.createRenderPass(() -> "Frozen world background",
-                target.getColorTextureView(), Optional.empty())) {
-                pass.setPipeline(RenderSystem.getCompiledPipeline(RenderPipelines.TRACY_BLIT));
+                target.getColorTextureView(), OptionalInt.empty())) {
+                pass.setPipeline(RenderPipelines.TRACY_BLIT);
                 RenderSystem.bindDefaultUniforms(pass);
-                pass.setUniform("InSampler", textureView, RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
-                pass.draw(3, 1, 0, 0);
+                pass.bindTexture("InSampler", textureView, RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
+                pass.draw(0, 3);
             }
-            encoder.submit();
             return true;
         } catch (Exception e) {
             ModLogger.error("Failed to draw frozen world frame", e);

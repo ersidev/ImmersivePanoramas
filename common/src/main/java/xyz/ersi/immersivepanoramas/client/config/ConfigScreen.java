@@ -3,7 +3,7 @@ package xyz.ersi.immersivepanoramas.client.config;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Checkbox;
 import net.minecraft.client.gui.components.ContainerObjectSelectionList;
@@ -218,29 +218,29 @@ public class ConfigScreen extends Screen {
     public void onClose() {
         this.config.save();
         if (this.minecraft != null) {
-            this.minecraft.gui.setScreen(this.parent);
+            this.minecraft.setScreen(this.parent);
         }
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
-        super.extractRenderState(graphics, mouseX, mouseY, a);
+    public void render(GuiGraphics graphics, int mouseX, int mouseY, float a) {
+        super.render(graphics, mouseX, mouseY, a);
 
-        graphics.centeredText(this.font, this.title, this.width / 2, this.titleY, 0xFFFFFFFF);
+        graphics.drawCenteredString(this.font, this.title, this.width / 2, this.titleY, 0xFFFFFFFF);
 
         int leftX = (this.width - CONTENT_WIDTH) / 2;
 
         String hint = this.config.filterMode == ModConfig.FilterMode.BLOCK_LIST
             ? "Checked worlds and servers will be excluded:"
             : "ONLY checked worlds and servers will have panoramas:";
-        graphics.centeredText(this.font, Component.literal(hint), this.width / 2, this.hintY, 0xFFAAAAAA);
+        graphics.drawCenteredString(this.font, Component.literal(hint), this.width / 2, this.hintY, 0xFFAAAAAA);
 
         if (this.list != null) {
             int listY = this.list.getY();
             int listHeight = this.list.getHeight();
             graphics.fill(leftX - 1, listY - 1, leftX + CONTENT_WIDTH + 1, listY + listHeight + 1, 0x33FFFFFF);
             if (this.list.children().isEmpty()) {
-                graphics.centeredText(this.font, Component.literal("No worlds or servers found."), this.width / 2, listY + listHeight / 2 - 4, 0xFFAAAAAA);
+                graphics.drawCenteredString(this.font, Component.literal("No worlds or servers found."), this.width / 2, listY + listHeight / 2 - 4, 0xFFAAAAAA);
             }
         }
     }
@@ -333,7 +333,7 @@ public class ConfigScreen extends Screen {
         }
 
         @Override
-        public void extractContent(GuiGraphicsExtractor graphics, int mouseX, int mouseY, boolean isHovered, float tickProgress) {
+        public void renderContent(GuiGraphics graphics, int mouseX, int mouseY, boolean isHovered, float tickProgress) {
             Font font = ConfigScreen.this.font;
             int x = this.getX();
             int y = this.getY();
@@ -343,22 +343,22 @@ public class ConfigScreen extends Screen {
             graphics.fill(x, y, x + width, y + height, isHovered ? 0x22FFFFFF : 0x0EFFFFFF);
 
             int textLeft = x + 4;
-            graphics.text(font, this.type.tag, textLeft, y + 4, this.type.color);
+            graphics.drawString(font, this.type.tag, textLeft, y + 4, this.type.color);
             int tagWidth = font.width(this.type.tag);
 
             int maxTextWidth = width - 88;
             String truncatedTitle = font.plainSubstrByWidth(this.title, Math.max(20, maxTextWidth - tagWidth - 4));
-            graphics.text(font, truncatedTitle, textLeft + tagWidth + 4, y + 4, 0xFFFFFFFF);
+            graphics.drawString(font, truncatedTitle, textLeft + tagWidth + 4, y + 4, 0xFFFFFFFF);
 
             String truncatedDetail = font.plainSubstrByWidth(this.detail, Math.max(20, maxTextWidth));
-            graphics.text(font, truncatedDetail, textLeft, y + 16, 0xFFAAAAAA);
+            graphics.drawString(font, truncatedDetail, textLeft, y + 16, 0xFFAAAAAA);
 
             int boxSize = Checkbox.getBoxSize(font);
             int cbX = x + width - boxSize - 4;
             int cbY = y + (height - boxSize) / 2;
             this.checkbox.setX(cbX);
             this.checkbox.setY(cbY);
-            this.checkbox.extractRenderState(graphics, mouseX, mouseY, tickProgress);
+            this.checkbox.render(graphics, mouseX, mouseY, tickProgress);
 
             if (this.checkbox.selected()) {
                 boolean isBlock = config.filterMode == ModConfig.FilterMode.BLOCK_LIST;
@@ -367,7 +367,7 @@ public class ConfigScreen extends Screen {
                     : Component.literal("Allowed").withStyle(ChatFormatting.GREEN);
                 int statusColor = isBlock ? 0xFFFF5555 : 0xFF55FF55;
                 int statusWidth = font.width(status);
-                graphics.text(font, status, cbX - statusWidth - 4, y + (height - 9) / 2, statusColor);
+                graphics.drawString(font, status, cbX - statusWidth - 4, y + (height - 9) / 2, statusColor);
             }
         }
     }
