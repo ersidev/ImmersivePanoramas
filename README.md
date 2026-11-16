@@ -1,5 +1,19 @@
 <div align="center">
 
+![Immersive Panoramas Logo](artwork/icon-readme.png)
+
+# Immersive Panoramas
+
+Custom 360° main menu panoramas captured directly from your worlds and servers.
+
+[![Download on Modrinth](https://img.shields.io/badge/Download_on-Modrinth-00AF5C?style=flat-square&logo=modrinth&logoColor=white)](https://modrinth.com/mod/immersive-panoramas)
+[![Fabric](https://img.shields.io/badge/Fabric-395985?style=flat-square)](https://fabricmc.net/)
+[![Quilt](https://img.shields.io/badge/Quilt-583B8B?style=flat-square)](https://quiltmc.org/)
+[![NeoForge](https://img.shields.io/badge/NeoForge-E57324?style=flat-square)](https://neoforged.net/)
+[![Environment: Client](https://img.shields.io/badge/Environment-Client-0284c7?style=flat-square)](https://modrinth.com/mods)
+
+</div>
+
 ---
 
 ### What does it do?
