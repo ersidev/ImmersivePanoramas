@@ -1,6 +1,6 @@
 package xyz.ersi.immersivepanoramas.client;
 
-import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.CubeMap;
 import net.minecraft.client.renderer.texture.TextureManager;

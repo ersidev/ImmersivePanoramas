@@ -2,12 +2,12 @@ package xyz.ersi.immersivepanoramas.client;
 
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.renderpearl.api.commands.CommandEncoder;
-import com.mojang.renderpearl.api.commands.RenderPass;
-import com.mojang.renderpearl.api.device.GpuDevice;
-import com.mojang.renderpearl.api.textures.FilterMode;
-import com.mojang.renderpearl.api.textures.GpuTexture;
-import com.mojang.renderpearl.api.textures.GpuTextureView;
+import com.mojang.blaze3d.systems.CommandEncoder;
+import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.blaze3d.systems.GpuDevice;
+import com.mojang.blaze3d.textures.FilterMode;
+import com.mojang.blaze3d.textures.GpuTexture;
+import com.mojang.blaze3d.textures.GpuTextureView;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.GenericMessageScreen;
@@ -137,9 +137,9 @@ public final class FrozenWorldRenderer {
             // this vanilla pass copies RGB even when the world texture has zero alpha
             try (RenderPass pass = encoder.createRenderPass(() -> "Frozen world background",
                 target.getColorTextureView(), Optional.empty())) {
-                pass.setPipeline(RenderSystem.getCompiledPipeline(RenderPipelines.TRACY_BLIT));
+                pass.setPipeline(RenderPipelines.TRACY_BLIT);
                 RenderSystem.bindDefaultUniforms(pass);
-                pass.setUniform("InSampler", textureView, RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
+                pass.bindTexture("InSampler", textureView, RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST));
                 pass.draw(3, 1, 0, 0);
             }
             encoder.submit();
