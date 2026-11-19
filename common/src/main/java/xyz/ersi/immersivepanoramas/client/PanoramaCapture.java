@@ -31,7 +31,7 @@ import java.util.concurrent.TimeUnit;
 
 public class PanoramaCapture {
     private static final int FACE_SIZE_STEP = 64;
-    private static final int FACE_COUNT = 6;
+    static final int FACE_COUNT = 6;
     private static final long READBACK_TIMEOUT = TimeUnit.SECONDS.toNanos(10);
 
     private static boolean isCapturing;
@@ -212,6 +212,10 @@ public class PanoramaCapture {
     }
 
     public static void processPendingCapture(Minecraft client) {
+        processPendingCapture(client, false);
+    }
+
+    private static void processPendingCapture(Minecraft client, boolean shuttingDown) {
         PendingCapture capture = pendingCapture;
         if (capture == null) {
             return;
@@ -219,8 +223,9 @@ public class PanoramaCapture {
 
         NativeImage[] faces = null;
         try {
-            if (!capture.fence.awaitCompletion(0L)) {
-                if (System.nanoTime() - capture.submittedAt > READBACK_TIMEOUT) {
+            long remaining = READBACK_TIMEOUT - (System.nanoTime() - capture.submittedAt);
+            if (!capture.fence.awaitCompletion(shuttingDown ? Math.max(0L, remaining) : 0L)) {
+                if (shuttingDown || remaining <= 0L) {
                     throw new IllegalStateException("Timed out waiting for panorama readback");
                 }
                 return;
@@ -245,12 +250,16 @@ public class PanoramaCapture {
                         }
                     }
                 }
-                CustomPanoramaManager.uploadCapture(faces, capture.view);
+                if (!shuttingDown) {
+                    CustomPanoramaManager.uploadCapture(faces, capture.view);
+                }
             }
 
-            Panorama panorama = client.gameRenderer.getPanorama();
-            if (panorama != null) {
-                ((PanoramaAccessor) panorama).setSpin(0.0F);
+            if (!shuttingDown) {
+                Panorama panorama = client.gameRenderer.getPanorama();
+                if (panorama != null) {
+                    ((PanoramaAccessor) panorama).setSpin(0.0F);
+                }
             }
             PanoramaStorage.queueSave(faces, capture.view);
             faces = null;
@@ -268,6 +277,15 @@ public class PanoramaCapture {
 
     static boolean hasPendingCapture() {
         return pendingCapture != null;
+    }
+
+    public static void finishOnShutdown(Minecraft client) {
+        try {
+            processPendingCapture(client, true);
+        } finally {
+            close();
+            PanoramaStorage.awaitPendingSaves();
+        }
     }
 
     public static void close() {
