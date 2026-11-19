@@ -47,10 +47,8 @@ public class CustomPanoramaManager {
             customCubeMap = new CubeMap(CUSTOM_PANORAMA_ID);
         }
         registerTextures(client.getTextureManager());
-        if (PanoramaStorage.load(customTexture)) {
-            capturedView = null;
-            showCaptureAngle = false;
-        }
+        capturedView = PanoramaStorage.load(customTexture);
+        showCaptureAngle = false;
     }
 
     public static synchronized void registerTextures(TextureManager textureManager) {
@@ -82,7 +80,7 @@ public class CustomPanoramaManager {
         return view.fov();
     }
 
-    static synchronized void uploadCapture(NativeImage[] faces, String worldKey, float yaw, float pitch, float fov) {
+    static synchronized void uploadCapture(NativeImage[] faces, CapturedView view) {
         if (customTexture == null) {
             customTexture = new CustomCubeMapTexture(CUSTOM_PANORAMA_ID);
         }
@@ -91,7 +89,7 @@ public class CustomPanoramaManager {
         }
         registerTextures(Minecraft.getInstance().getTextureManager());
         customTexture.uploadFaces(faces);
-        capturedView = new CapturedView(worldKey, yaw, Mth.clamp(pitch, -90.0F, 90.0F), fov);
+        capturedView = view;
         showCaptureAngle = true;
         ModLogger.info("Uploaded custom panorama faces");
     }
@@ -133,5 +131,5 @@ public class CustomPanoramaManager {
         }
     }
 
-    private record CapturedView(String worldKey, float yaw, float pitch, float fov) {}
+    record CapturedView(String worldKey, float yaw, float pitch, float fov) {}
 }
