@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit;
 
 public class PanoramaCapture {
     private static final int FACE_SIZE_STEP = 64;
-    private static final int FACE_COUNT = 6;
+    static final int FACE_COUNT = 6;
     private static final long READBACK_TIMEOUT = TimeUnit.SECONDS.toNanos(10);
 
     private static boolean isCapturing;
@@ -176,6 +176,10 @@ public class PanoramaCapture {
     }
 
     public static void processPendingCapture(Minecraft client) {
+        processPendingCapture(client, false);
+    }
+
+    private static void processPendingCapture(Minecraft client, boolean shuttingDown) {
         PendingCapture capture = pendingCapture;
         if (capture == null) {
             return;
@@ -183,8 +187,9 @@ public class PanoramaCapture {
 
         NativeImage[] faces = null;
         try {
-            if (!capture.awaitCompletion()) {
-                if (System.nanoTime() - capture.submittedAt > READBACK_TIMEOUT) {
+            long remaining = READBACK_TIMEOUT - (System.nanoTime() - capture.submittedAt);
+            if (!capture.awaitCompletion(shuttingDown ? Math.max(0L, remaining) : 0L)) {
+                if (shuttingDown || remaining <= 0L) {
                     throw new IllegalStateException("Timed out waiting for panorama readback");
                 }
                 return;
@@ -193,10 +198,14 @@ public class PanoramaCapture {
             faces = new NativeImage[FACE_COUNT];
             try (capture) {
                 capture.readFaces(faces);
-                CustomPanoramaManager.uploadCapture(client, faces, capture.view);
+                if (!shuttingDown) {
+                    CustomPanoramaManager.uploadCapture(client, faces, capture.view);
+                }
             }
 
-            CustomPanoramaManager.resetSpin();
+            if (!shuttingDown) {
+                CustomPanoramaManager.resetSpin();
+            }
             PanoramaStorage.queueSave(faces, capture.view);
             faces = null;
         } catch (Exception e) {
@@ -213,6 +222,15 @@ public class PanoramaCapture {
 
     static boolean hasPendingCapture() {
         return pendingCapture != null;
+    }
+
+    public static void finishOnShutdown(Minecraft client) {
+        try {
+            processPendingCapture(client, true);
+        } finally {
+            close();
+            PanoramaStorage.awaitPendingSaves();
+        }
     }
 
     public static void close() {
@@ -266,8 +284,8 @@ public class PanoramaCapture {
             }
         }
 
-        private boolean awaitCompletion() {
-            int status = GL32C.glClientWaitSync(fence, GL32C.GL_SYNC_FLUSH_COMMANDS_BIT, 0);
+        private boolean awaitCompletion(long timeout) {
+            int status = GL32C.glClientWaitSync(fence, GL32C.GL_SYNC_FLUSH_COMMANDS_BIT, timeout);
             if (status == GL32C.GL_WAIT_FAILED) {
                 throw new IllegalStateException("Could not wait for panorama readback");
             }
