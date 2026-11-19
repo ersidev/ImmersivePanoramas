@@ -18,6 +18,7 @@ import net.minecraft.client.renderer.Panorama;
 import net.minecraft.gizmos.Gizmos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
+import org.lwjgl.opengl.GL11C;
 import org.lwjgl.system.MemoryUtil;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig.CaptureResolution;
@@ -117,7 +118,7 @@ public class PanoramaCapture {
             if (view != null) {
                 renderView(client, view);
                 FrozenWorldRenderer.freeze(target);
-                RenderSystem.getDynamicUniforms().reset();
+                resetCaptureUniforms();
             }
 
             client.getWindow().setWidth(faceSize);
@@ -139,7 +140,7 @@ public class PanoramaCapture {
             if (shadersActive) {
                 // turn the camera once after resizing so the first saved face rejects stale shader history
                 position = renderFace(client, player, (yaw - 90.0F) % 360.0F, 0.0F, position);
-                RenderSystem.getDynamicUniforms().reset();
+                resetCaptureUniforms();
             }
 
             for (int i = 0; i < FACE_COUNT; i++) {
@@ -161,7 +162,7 @@ public class PanoramaCapture {
                 if (i == FACE_COUNT - 1) {
                     capture.fence = encoder.createFence();
                 }
-                RenderSystem.getDynamicUniforms().reset();
+                resetCaptureUniforms();
             }
         } finally {
             player.setXRot(pitch);
@@ -176,6 +177,14 @@ public class PanoramaCapture {
                 camera.disablePanoramicMode();
             }
             target.resize(targetWidth, targetHeight);
+        }
+    }
+
+    private static void resetCaptureUniforms() {
+        RenderSystem.getDynamicUniforms().reset();
+        if ("OpenGL".equals(RenderSystem.getDevice().getBackendName())) {
+            // flush the buffer reuse fences before a later face waits on them
+            GL11C.glFlush();
         }
     }
 
