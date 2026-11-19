@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit;
 
 public class PanoramaCapture {
     private static final int FACE_SIZE_STEP = 64;
-    private static final int FACE_COUNT = 6;
+    static final int FACE_COUNT = 6;
     private static final long READBACK_TIMEOUT = TimeUnit.SECONDS.toNanos(10);
 
     private static boolean isCapturing;
@@ -191,6 +191,10 @@ public class PanoramaCapture {
     }
 
     public static void processPendingCapture(Minecraft client) {
+        processPendingCapture(client, false);
+    }
+
+    private static void processPendingCapture(Minecraft client, boolean shuttingDown) {
         PendingCapture capture = pendingCapture;
         if (capture == null) {
             return;
@@ -198,12 +202,14 @@ public class PanoramaCapture {
 
         NativeImage[] faces = null;
         try {
-            int status = GL32C.glClientWaitSync(capture.fence, GL32C.GL_SYNC_FLUSH_COMMANDS_BIT, 0);
+            long remaining = READBACK_TIMEOUT - (System.nanoTime() - capture.submittedAt);
+            int status = GL32C.glClientWaitSync(capture.fence, GL32C.GL_SYNC_FLUSH_COMMANDS_BIT,
+                shuttingDown ? Math.max(0L, remaining) : 0L);
             if (status == GL32C.GL_WAIT_FAILED) {
                 throw new IllegalStateException("Could not wait for panorama readback");
             }
             if (status == GL32C.GL_TIMEOUT_EXPIRED) {
-                if (System.nanoTime() - capture.submittedAt > READBACK_TIMEOUT) {
+                if (shuttingDown || remaining <= 0L) {
                     throw new IllegalStateException("Timed out waiting for panorama readback");
                 }
                 return;
@@ -241,8 +247,10 @@ public class PanoramaCapture {
                 }
             }
 
-            CustomPanoramaManager.uploadCapture(client, faces, capture.view);
-            ((PanoramaAccessor) ScreenAccessor.getPanorama()).setSpin(0.0F);
+            if (!shuttingDown) {
+                CustomPanoramaManager.uploadCapture(client, faces, capture.view);
+                ((PanoramaAccessor) ScreenAccessor.getPanorama()).setSpin(0.0F);
+            }
             PanoramaStorage.queueSave(faces, capture.view);
             faces = null;
         } catch (Exception e) {
@@ -259,6 +267,15 @@ public class PanoramaCapture {
 
     static boolean hasPendingCapture() {
         return pendingCapture != null;
+    }
+
+    public static void finishOnShutdown(Minecraft client) {
+        try {
+            processPendingCapture(client, true);
+        } finally {
+            close();
+            PanoramaStorage.awaitPendingSaves();
+        }
     }
 
     public static void close() {

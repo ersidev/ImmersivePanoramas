@@ -12,12 +12,18 @@ import xyz.ersi.immersivepanoramas.platform.Services;
 import java.io.IOException;
 import java.io.Reader;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 final class PanoramaStorage {
@@ -25,7 +31,9 @@ final class PanoramaStorage {
     private static final String CURRENT_FILE = "current";
     private static final String VIEW_FILE = "view.json";
     private static final String CAPTURE_PREFIX = "capture-";
+    private static final String PENDING_SUFFIX = ".pending";
     private static final Pattern CAPTURE_NAME = Pattern.compile(CAPTURE_PREFIX + "[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}");
+    private static final long SHUTDOWN_SAVE_TIMEOUT = TimeUnit.SECONDS.toNanos(15);
 
     private static SavedCapture queuedSave;
     private static boolean saveWorkerRunning;
@@ -34,6 +42,7 @@ final class PanoramaStorage {
 
     static CapturedView load(CustomCubeMapTexture texture) {
         Path root = panoramaDirectory();
+        cleanAbandonedCaptures(root);
         Path published = readPublishedDirectory(root);
         if (published != null) {
             CapturedView view = readView(published);
@@ -93,6 +102,24 @@ final class PanoramaStorage {
         }
     }
 
+    static synchronized void awaitPendingSaves() {
+        long deadline = System.nanoTime() + SHUTDOWN_SAVE_TIMEOUT;
+        while (saveWorkerRunning) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0L) {
+                ModLogger.warn("Timed out waiting for panorama save on shutdown");
+                return;
+            }
+            try {
+                TimeUnit.NANOSECONDS.timedWait(PanoramaStorage.class, remaining);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                ModLogger.warn("Interrupted while waiting for panorama save on shutdown");
+                return;
+            }
+        }
+    }
+
     private static void drainSaves() {
         try {
             SavedCapture save;
@@ -112,6 +139,7 @@ final class PanoramaStorage {
                 }
                 queuedSave = null;
                 saveWorkerRunning = false;
+                PanoramaStorage.class.notifyAll();
             }
             throw e;
         }
@@ -122,25 +150,38 @@ final class PanoramaStorage {
         queuedSave = null;
         if (save == null) {
             saveWorkerRunning = false;
+            PanoramaStorage.class.notifyAll();
         }
         return save;
     }
 
     private static void writeCapture(Path root, SavedCapture save) throws IOException {
         Files.createDirectories(root);
-        Path capture = Files.createDirectory(root.resolve(CAPTURE_PREFIX + UUID.randomUUID()));
+        try (FileChannel channel = openSaveLock(root); FileLock lock = channel.lock()) {
+            publishCapture(root, save);
+        }
+    }
+
+    private static FileChannel openSaveLock(Path root) throws IOException {
+        return FileChannel.open(root.resolve(".capture.lock"), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+    }
+
+    private static void publishCapture(Path root, SavedCapture save) throws IOException {
+        String name = CAPTURE_PREFIX + UUID.randomUUID();
+        Path capture = root.resolve(name);
+        Path marker = root.resolve("." + name + PENDING_SUFFIX);
         NativeImage[] faces = save.faces();
-        Path marker = null;
+        Files.writeString(marker, name, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
         boolean published = false;
         try {
+            Files.createDirectory(capture);
             for (int i = 0; i < faces.length; i++) {
+                makeOpaque(faces[i]);
                 faces[i].writeToFile(capture.resolve(faceFileName(i)));
             }
             Files.writeString(capture.resolve(VIEW_FILE), GSON.toJson(save.view()));
 
             Path previous = readPublishedDirectory(root);
-            marker = Files.createTempFile(root, ".current-", ".tmp");
-            Files.writeString(marker, capture.getFileName().toString());
             // publish the faces and their view together
             Files.move(marker, root.resolve(CURRENT_FILE), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             published = true;
@@ -150,10 +191,39 @@ final class PanoramaStorage {
         } finally {
             if (!published) {
                 deleteCapture(capture, faces.length);
-                if (marker != null) {
+                if (Files.notExists(capture, LinkOption.NOFOLLOW_LINKS)) {
                     deletePath(marker);
                 }
             }
+        }
+    }
+
+    private static void cleanAbandonedCaptures(Path root) {
+        if (!Files.isDirectory(root)) {
+            return;
+        }
+        try (FileChannel channel = openSaveLock(root); FileLock lock = channel.tryLock()) {
+            if (lock == null) {
+                return;
+            }
+            // only captures using this lock leave pending markers
+            try (DirectoryStream<Path> markers = Files.newDirectoryStream(root, "." + CAPTURE_PREFIX + "*" + PENDING_SUFFIX)) {
+                for (Path marker : markers) {
+                    String filename = marker.getFileName().toString();
+                    String name = filename.substring(1, filename.length() - PENDING_SUFFIX.length());
+                    if (CAPTURE_NAME.matcher(name).matches()) {
+                        Path capture = root.resolve(name);
+                        deleteCapture(capture, PanoramaCapture.FACE_COUNT);
+                        if (Files.notExists(capture, LinkOption.NOFOLLOW_LINKS)) {
+                            deletePath(marker);
+                        }
+                    }
+                }
+            }
+        } catch (OverlappingFileLockException e) {
+            // another writer in this process owns the lock
+        } catch (IOException | RuntimeException e) {
+            ModLogger.warn("Failed to clean up abandoned panorama captures", e);
         }
     }
 
