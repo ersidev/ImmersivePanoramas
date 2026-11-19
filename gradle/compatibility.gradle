@@ -1,0 +1,156 @@
+// shared sources target patch 6 and adapt api differences for earlier patches
+ext.minecraftSource = { String path, String source ->
+    int patch = minecraft_version.tokenize('.').last().toInteger()
+    if (patch >= 5 && path.tokenize('/').last().startsWith('Legacy')
+        || patch != 1 && path.endsWith('LegacyWorldSelectionScreenMixin.java')) {
+        return null
+    }
+    if (patch == 1 && path.endsWith('LegacyTabButtonMixin.java')) {
+        source = source.replace('blitSprite(Lnet/minecraft/resources/ResourceLocation;IIII)V',
+            'blitNineSliced(Lnet/minecraft/resources/ResourceLocation;IIIIIIIIIIII)V')
+    }
+    if (patch < 3 && path.endsWith('LegacySelectionListMixin.java')) {
+        source = source.replace('method = "renderWidget"', 'method = "render"')
+            .replace('public abstract class LegacySelectionListMixin {', 'public abstract class LegacySelectionListMixin {\n    @Shadow protected int x0;\n    @Shadow protected int y0;\n    @Shadow protected int x1;\n    @Shadow protected int y1;')
+            .replace('list.getX(), list.getY(), list.getRight(), list.getBottom()', 'this.x0, this.y0, this.x1, this.y1')
+        if (patch == 1) {
+            source = source.replace('    @Inject(method = "render", at = @At("HEAD"))', '''    @ModifyExpressionValue(method = "render", at = @At(value = "FIELD",
+        target = "Lnet/minecraft/client/gui/components/AbstractSelectionList;renderTopAndBottom:Z"))
+    private boolean useTransparentBorders(boolean original) {
+        return original && LegacyMenuBackground.usesVanillaBackground(Minecraft.getInstance().screen);
+    }
+
+    @Inject(method = "render", at = @At("HEAD"))''')
+        }
+    }
+    // use the patch 5 entrypoint for both patches, the client-only annotation was added later
+    if (patch >= 5 && path.endsWith('ImmersivePanoramasNeoForge.java')) {
+        source = source.replace('@Mod(value = "immersivepanoramas", dist = Dist.CLIENT)', '@Mod("immersivepanoramas")')
+            .replace('        modContainer.registerExtensionPoint(', '        if (net.neoforged.fml.loading.FMLEnvironment.dist != Dist.CLIENT) {\n            return;\n        }\n        modContainer.registerExtensionPoint(')
+    }
+    if (patch < 5) {
+        if (path.endsWith('ImmersivePanoramasNeoForge.java')) {
+            return """package xyz.ersi.immersivepanoramas.neoforge;
+
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.neoforge.client.ConfigScreenHandler;
+import xyz.ersi.immersivepanoramas.client.config.ConfigScreen;
+
+@Mod("immersivepanoramas")
+public class ImmersivePanoramasNeoForge {
+    public ImmersivePanoramasNeoForge(ModContainer modContainer, Dist dist) {
+        if (dist == Dist.CLIENT) {
+            Client.registerConfigScreen(modContainer);
+        }
+    }
+
+    private static final class Client {
+        private static void registerConfigScreen(ModContainer modContainer) {
+            modContainer.registerExtensionPoint(
+                ConfigScreenHandler.ConfigScreenFactory.class,
+                () -> new ConfigScreenHandler.ConfigScreenFactory((client, screen) -> new ConfigScreen(screen))
+            );
+        }
+    }
+}
+"""
+        }
+        source = source.replace('GenericMessageScreen', 'GenericDirtMessageScreen')
+        if (path.endsWith('DisconnectWatchdog.java')) {
+            source = source.replace('Thread.ofVirtual().name("Immersive Panoramas disconnect watchdog").start(() -> {', 'new Thread(() -> {')
+                .replace('Thread.sleep(WARNING_DELAY);', 'Thread.sleep(WARNING_DELAY.toMillis());')
+                .replace('        });', '        }, "Immersive Panoramas disconnect watchdog");\n        watcher.setDaemon(true);\n        watcher.start();')
+        }
+        if (path.endsWith('PanoramaCapture.java')) {
+            source = source.replace('client.gameRenderer.renderLevel(1.0F, Util.getNanos());',
+                'client.gameRenderer.renderLevel(1.0F, Util.getNanos(), new com.mojang.blaze3d.vertex.PoseStack());')
+        }
+        if (path.endsWith('MinecraftMixin.java')) {
+            source = source.replace('disconnect(Lnet/minecraft/client/gui/screens/Screen;Z)V',
+                "${patch == 1 ? 'clearLevel' : 'disconnect'}(Lnet/minecraft/client/gui/screens/Screen;)V")
+                .replace('Screen screen, boolean transferring, Operation<Void> original', 'Screen screen, Operation<Void> original')
+                .replace('original.call(screen, transferring);', 'original.call(screen);')
+        }
+        if (path.endsWith('/ScreenMixin.java')) {
+            source = source.substring(0, source.indexOf('    @Inject(method = "renderPanorama"')) + '}\n'
+            source = source.replace('@At("HEAD"))', '@At("HEAD"), cancellable = true)')
+                .replace('// vanilla skips panorama rendering until the level is cleared', '// keep the captured frame visible while vanilla disconnects')
+                .replace('if (Minecraft.getInstance().level != null)', 'if (!xyz.ersi.immersivepanoramas.client.LegacyMenuBackground.usesVanillaBackground((Screen) (Object) this))')
+                .replace('FrozenWorldRenderer.renderBackground((Screen) (Object) this);', 'xyz.ersi.immersivepanoramas.client.LegacyMenuBackground.render((Screen) (Object) this, graphics, partialTick);\n            ci.cancel();')
+            source = source.substring(0, source.lastIndexOf('}')) + """    @Inject(method = "renderDirtBackground", at = @At("HEAD"), cancellable = true)
+    private void replaceDirtBackground(GuiGraphics graphics, CallbackInfo ci) {
+        if (!xyz.ersi.immersivepanoramas.client.LegacyMenuBackground.usesVanillaBackground((Screen) (Object) this)) {
+            xyz.ersi.immersivepanoramas.client.LegacyMenuBackground.render((Screen) (Object) this, graphics, Minecraft.getInstance().getFrameTime());
+            ci.cancel();
+        }
+    }
+}
+"""
+        }
+        if (path.endsWith('TitleScreenMixin.java')) {
+            source = source.replace('import org.spongepowered.asm.mixin.injection.Inject;',
+                'import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;\nimport net.minecraft.client.renderer.PanoramaRenderer;')
+            int start = source.indexOf('    @Inject(')
+            source = source.substring(0, start) + """    @WrapWithCondition(method = "render", at = @At(value = "INVOKE",
+        target = "Lnet/minecraft/client/renderer/PanoramaRenderer;render(FF)V"))
+    private boolean useFrozenBackground(PanoramaRenderer panorama, float partialTick, float alpha) {
+        return !FrozenWorldRenderer.renderBackground((Screen) (Object) this);
+    }
+}
+"""
+        }
+        if (path.endsWith('ConfigScreen.java')) {
+            source = source.replace('Checkbox.getBoxSize(font)', patch < 3 ? '20' : '17')
+            def rightEdge = patch < 3 ? 'this.x1' : 'this.getRight()'
+            source = source.replace('        public void clear() {', """        @Override
+        protected int getScrollbarPosition() {
+            return ${rightEdge} - 6;
+        }
+
+        public void clear() {""")
+        }
+    }
+    if (patch < 3 && path.endsWith('ConfigScreen.java')) {
+        source = source.replace('this.list.setX(leftX);', 'this.list.setLeftPos(leftX);')
+            .replace('super(minecraft, width, height, y, itemHeight);',
+                'super(minecraft, width, ConfigScreen.this.height, y, y + height, itemHeight);\n' +
+                '            this.setRenderBackground(false);\n            this.setRenderTopAndBottom(false);')
+        source = source.replace('        public void clear() {', """        public int getY() {
+            return this.y0;
+        }
+
+        public int getHeight() {
+            return this.y1 - this.y0;
+        }
+
+        public void clear() {""")
+        int start = source.indexOf('            this.checkbox = Checkbox.builder(')
+        int end = source.indexOf('                .build();', start) + '                .build();'.length()
+        source = source.substring(0, start) + """            this.checkbox = new Checkbox(0, 0, boxSize, boxSize, CommonComponents.EMPTY, isIncluded, false) {
+                @Override
+                public void onPress() {
+                    super.onPress();
+                    if (this.selected()) {
+                        config.filteredWorlds.add(identifier);
+                    } else {
+                        config.filteredWorlds.remove(identifier);
+                    }
+                    config.save();
+                }
+            };""" + source.substring(end)
+    }
+    if (patch == 1 && path.endsWith('ConfigScreen.java')) {
+        source = source.replace('this.renderBackground(graphics, mouseX, mouseY, a);', 'this.renderBackground(graphics);')
+    }
+    if (patch == 1 && path.endsWith('/ScreenMixin.java')) {
+        source = source.replace('GuiGraphics graphics, int mouseX, int mouseY, float partialTick, CallbackInfo ci',
+            'GuiGraphics graphics, CallbackInfo ci')
+            .replace('graphics, partialTick);', 'graphics, Minecraft.getInstance().getFrameTime());')
+    }
+    if (patch == 2) {
+        source = source.replace('            this.setRenderTopAndBottom(false);\n', '')
+    }
+    return source
+}

@@ -2,6 +2,7 @@ pluginManagement {
     repositories {
         gradlePluginPortal()
         mavenCentral()
+        maven { url = 'https://maven.minecraftforge.net/' }
         maven {
             name = 'Fabric'
             url = 'https://maven.fabricmc.net/'
@@ -19,5 +20,14 @@ pluginManagement {
 
 rootProject.name = 'ImmersivePanoramas'
 include('common')
-include('fabric')
-include('neoforge')
+def loaders = providers.gradleProperty('loaders').getOrElse('fabric,forge,neoforge').split(',') as List
+def target = providers.gradleProperty('minecraft_version').getOrElse('1.20.1')
+if (loaders.contains('fabric')) {
+    include('fabric')
+}
+if (loaders.contains('neoforge') && target != '1.20.1') {
+    include('neoforge')
+}
+if (loaders.contains('forge') && target != '1.20.5') {
+    include('forge')
+}

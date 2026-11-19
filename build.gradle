@@ -1,27 +1,81 @@
 plugins {
     id 'base'
-    id 'net.fabricmc.fabric-loom' version '1.18-SNAPSHOT' apply false
+    id 'fabric-loom' version '1.10.5' apply false
+    id 'net.minecraftforge.gradle' version '6.0.54' apply false
+    id 'net.neoforged.gradle.userdev' version '7.1.39' apply false
     id 'net.neoforged.moddev' version '2.0.148' apply false
 }
+
+apply from: 'gradle/minecraft.gradle'
+apply from: 'gradle/compatibility.gradle'
 
 subprojects {
     group = rootProject.group
     version = rootProject.mod_version
-    layout.buildDirectory = rootProject.layout.buildDirectory.dir(project.name)
+    layout.buildDirectory = rootProject.layout.buildDirectory.dir("${minecraft_version}/${project.name}")
 }
 
-def loaderProjects = [project(':fabric'), project(':neoforge')]
+def loaderProjects = subprojects.findAll { it.name in ['fabric', 'forge', 'neoforge'] }
 
 def copyJars = tasks.register('copyJars', Copy) {
     loaderProjects.each { p ->
         dependsOn p.tasks.named('assemble')
         from(p.layout.buildDirectory.dir('libs')) {
-            exclude '*-sources.jar'
+            include "${mod_id}-${p.name}-${mod_version}-${p.minecraft_artifact_version}.jar"
         }
     }
     into layout.buildDirectory.dir('libs')
+    doLast {
+        // remove old filenames and superseded single-version jars for this release only
+        loaderProjects.each { p ->
+            (p.minecraft_supported_versions + [p.minecraft_artifact_version]).unique().each { oldTarget ->
+                [mod_version, "${mod_version}-1.20.x"].each { oldVersion ->
+                    delete layout.buildDirectory.file("libs/${mod_id}-${p.name}-${oldTarget}-${oldVersion}.jar")
+                }
+            }
+            if (p.minecraft_artifact_version != minecraft_version) {
+                p.minecraft_supported_versions.each { oldTarget ->
+                    delete layout.buildDirectory.file("libs/${mod_id}-${p.name}-${mod_version}-${oldTarget}.jar")
+                }
+            }
+        }
+    }
 }
 
 tasks.named('assemble') {
     dependsOn copyJars
+}
+
+def releaseTargets = [
+    '1.20.1': 'fabric,forge',
+    '1.20.2': 'fabric,forge,neoforge',
+    '1.20.3': 'fabric,forge,neoforge', // also covers patch 4
+    '1.20.5': 'fabric,neoforge', // also covers patch 6
+    '1.20.6': 'forge'
+]
+def previousReleaseBuild = null
+def releaseBuilds = releaseTargets.collect { target, loaders ->
+    def precedingBuild = previousReleaseBuild
+    def releaseBuild = tasks.register("buildRelease${target.replace('.', '_')}", GradleBuild) {
+        dir = rootDir
+        buildName = "release-${target}"
+        tasks = ['build']
+        startParameter.projectProperties = gradle.startParameter.projectProperties + [
+            minecraft_version: target,
+            loaders: loaders
+        ]
+        startParameter.offline = gradle.startParameter.offline
+        startParameter.refreshDependencies = gradle.startParameter.refreshDependencies
+        if (precedingBuild != null) {
+            mustRunAfter precedingBuild
+        }
+    }
+    previousReleaseBuild = releaseBuild
+    releaseBuild
+}
+
+tasks.register('buildRelease') {
+    group = 'build'
+    description = 'Builds all 11 release jars across the supported Minecraft versions and loaders.'
+    dependsOn releaseBuilds
 }

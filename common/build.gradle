@@ -1,16 +1,22 @@
 plugins {
     id 'multiloader-common'
-    id 'net.neoforged.moddev'
-}
-
-neoForge {
-    neoFormVersion = neo_form_version
+    id 'fabric-loom'
 }
 
 dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    compileOnly "net.fabricmc:fabric-loader:${loader_version}"
+    mappings loom.officialMojangMappings()
+
     compileOnly "org.spongepowered:mixin:0.8.7"
     compileOnly "io.github.llamalad7:mixinextras-common:0.4.1"
     annotationProcessor "io.github.llamalad7:mixinextras-common:0.4.1"
+}
+
+loom {
+    mixin {
+        defaultRefmapName = "${mod_id}.refmap.json"
+    }
 }
 
 configurations {
@@ -25,6 +31,6 @@ configurations {
 }
 
 artifacts {
-    commonJava sourceSets.main.java.sourceDirectories.singleFile
+    commonJava(sourceSets.main.java.sourceDirectories.singleFile) { builtBy tasks.named('prepareMinecraftSources') }
     commonResources sourceSets.main.resources.sourceDirectories.singleFile
 }

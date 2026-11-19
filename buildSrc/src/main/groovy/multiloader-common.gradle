@@ -7,13 +7,18 @@ base {
     archivesName = "${mod_id}-${project.name}"
 }
 
+tasks.withType(AbstractArchiveTask).configureEach {
+    archiveVersion = "${mod_version}-${minecraft_artifact_version}"
+}
+
 java {
-    toolchain.languageVersion = JavaLanguageVersion.of(java_version)
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
     withSourcesJar()
 }
 
 repositories {
     mavenCentral()
+    maven { url = 'https://maven.minecraftforge.net/' }
     maven {
         name = 'Sponge'
         url = 'https://repo.spongepowered.org/repository/maven-public'
@@ -37,6 +42,7 @@ processResources {
         'version'                      : mod_version,
         'group'                        : project.group,
         'minecraft_version'            : minecraft_version,
+        'minecraft_version_predicate'  : minecraft_version_predicate,
         'minecraft_version_range'      : minecraft_version_range,
         'loader_version'               : loader_version,
         'mod_name'                     : mod_name,
@@ -51,17 +57,67 @@ processResources {
         'neoforge_version'             : neoforge_version,
         'neoforge_version_range'       : neoforge_version_range,
         'neoforge_loader_version_range': neoforge_loader_version_range,
-        'java_version'                 : java_version
+        'java_version'                 : java_version,
+        'resource_pack_format'         : resource_pack_format,
+        'forge_loader_version_range'  : forge_loader_version_range,
+        'forge_version'               : forge_version ?: 'none',
+        'forge_min_version'           : forge_min_version ?: 'none'
     ]
+
+    if (minecraft_version.tokenize('.').last().toInteger() >= 5) {
+        exclude 'assets/minecraft/**', 'assets/immersivepanoramas/textures/gui/**'
+    }
 
     filteringCharset = 'UTF-8'
 
-    filesMatching(['fabric.mod.json', 'META-INF/neoforge.mods.toml', '*.mixins.json']) {
+    filesMatching(['fabric.mod.json', 'META-INF/neoforge.mods.toml', 'META-INF/mods.toml', '*.mixins.json', 'pack.mcmeta']) {
         expand expandProps
+    }
+    filesMatching('immersivepanoramas.mixins.json') {
+        filter { line ->
+            int patch = minecraft_version.tokenize('.').last().toInteger()
+            if (line.contains('"client.Legacy') && patch >= 5
+                || line.contains('"client.LegacyWorldSelectionScreenMixin"') && patch != 1) {
+                return null
+            }
+            return line
+        }
     }
     inputs.properties(expandProps)
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+    options.release = Integer.parseInt(java_version.toString())
+}
+
+// keep version-specific signatures out of the shared implementation
+def minecraftSources = tasks.register('prepareMinecraftSources') {
+    def originalSources = file('src/main/java')
+    def generatedSources = layout.buildDirectory.dir('generated/sources/minecraft')
+    inputs.dir(originalSources)
+    inputs.property('minecraft_version', minecraft_version)
+    inputs.file(rootProject.file('gradle/compatibility.gradle'))
+    outputs.dir(generatedSources)
+    doLast {
+        def destination = generatedSources.get().asFile
+        delete(destination)
+        fileTree(originalSources).matching { include '**/*.java' }.each { source ->
+            def relativePath = originalSources.toPath().relativize(source.toPath()).toString().replace(File.separatorChar, '/' as char)
+            def compatibleSource = rootProject.minecraftSource(relativePath, source.getText('UTF-8'))
+            if (compatibleSource == null) {
+                return
+            }
+            def output = new File(destination, relativePath)
+            output.parentFile.mkdirs()
+            output.setText(compatibleSource, 'UTF-8')
+        }
+    }
+}
+sourceSets.main.java.setSrcDirs([layout.buildDirectory.dir('generated/sources/minecraft')])
+tasks.named('compileJava') {
+    dependsOn minecraftSources
+}
+tasks.named('sourcesJar') {
+    dependsOn minecraftSources
 }

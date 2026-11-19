@@ -9,6 +9,7 @@ Custom 360° main menu panoramas captured directly from your worlds and servers.
 [![Download on Modrinth](https://img.shields.io/badge/Download_on-Modrinth-00AF5C?style=flat-square&logo=modrinth&logoColor=white)](https://modrinth.com/mod/immersive-panoramas)
 [![Fabric](https://img.shields.io/badge/Fabric-395985?style=flat-square)](https://fabricmc.net/)
 [![Quilt](https://img.shields.io/badge/Quilt-583B8B?style=flat-square)](https://quiltmc.org/)
+[![Forge](https://img.shields.io/badge/Forge-1E5A8A?style=flat-square)](https://files.minecraftforge.net/)
 [![NeoForge](https://img.shields.io/badge/NeoForge-E57324?style=flat-square)](https://neoforged.net/)
 [![Environment: Client](https://img.shields.io/badge/Environment-Client-0284c7?style=flat-square)](https://modrinth.com/mods)
 
@@ -37,7 +38,7 @@ When you disconnect, it captures the area from your exact location and camera an
 
 ### In-Game Configuration
 
-Open the config menu using [Mod Menu](https://modrinth.com/mod/modmenu) on Fabric/Quilt, or via the **Mods** list on NeoForge:
+Open the config menu using [Mod Menu](https://modrinth.com/mod/modmenu) on Fabric/Quilt, or via the **Mods** list on Forge/NeoForge:
 
 ![Immersive Panoramas Config Screen](https://cdn.modrinth.com/data/cached_images/18340d889903a6c62170df76e90cd67b35f3677c.png)
 
@@ -66,7 +67,7 @@ Higher resolutions can preserve more detail and take longer to capture when you 
 ### Installation & Compatibility
 
 - **Download**: Grab the latest release on [Modrinth](https://modrinth.com/mod/immersive-panoramas) for your loader.
-- **Supported Loaders**: Fabric, Quilt, and NeoForge.
+- **Supported Loaders**: Fabric, Quilt, Forge, and NeoForge.
 - **Client-Side Only**: Works everywhere! You can freely join any server even if the mod isn't installed on it.
 
 #### Shader compatibility

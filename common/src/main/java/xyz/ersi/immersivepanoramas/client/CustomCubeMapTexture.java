@@ -1,32 +1,30 @@
 package xyz.ersi.immersivepanoramas.client;
 
 import com.mojang.blaze3d.platform.NativeImage;
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.renderpearl.api.GpuFormat;
-import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
-import com.mojang.renderpearl.api.commands.CommandEncoder;
-import com.mojang.renderpearl.api.device.GpuDevice;
-import com.mojang.renderpearl.api.textures.FilterMode;
-import com.mojang.renderpearl.api.textures.GpuTexture;
-import com.mojang.renderpearl.api.textures.GpuTextureView;
+import com.mojang.blaze3d.platform.TextureUtil;
 import net.minecraft.client.renderer.texture.AbstractTexture;
-import net.minecraft.resources.Identifier;
+import net.minecraft.client.renderer.texture.TextureManager;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.packs.resources.ResourceManager;
+
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-public class CustomCubeMapTexture extends AbstractTexture {
-    private static final int[] SUFFIX_MAPPING = {1, 3, 5, 4, 0, 2};
+public class CustomCubeMapTexture implements AutoCloseable {
+    private static final int FACE_COUNT = 6;
 
-    private final Identifier id;
+    private final ResourceLocation id;
+    private final TextureManager textureManager;
+    private boolean loaded;
 
-    public CustomCubeMapTexture(Identifier id) {
+    public CustomCubeMapTexture(ResourceLocation id, TextureManager textureManager) {
         this.id = id;
-        this.sampler = RenderSystem.getSamplerCache().getRepeat(FilterMode.LINEAR);
+        this.textureManager = textureManager;
     }
 
     public boolean isLoaded() {
-        return this.textureView != null;
+        return this.loaded;
     }
 
     public synchronized boolean loadFromDirectory(Path dir) {
@@ -34,7 +32,7 @@ public class CustomCubeMapTexture extends AbstractTexture {
             return false;
         }
 
-        NativeImage[] faces = new NativeImage[SUFFIX_MAPPING.length];
+        NativeImage[] faces = new NativeImage[FACE_COUNT];
         try {
             for (int i = 0; i < faces.length; i++) {
                 Path file = dir.resolve(PanoramaStorage.faceFileName(i));
@@ -55,8 +53,8 @@ public class CustomCubeMapTexture extends AbstractTexture {
         }
     }
 
-    private void uploadFaces(NativeImage[] faces) {
-        if (faces.length != SUFFIX_MAPPING.length) {
+    synchronized void uploadFaces(NativeImage[] faces) {
+        if (faces.length != FACE_COUNT) {
             throw new IllegalArgumentException("A panorama must have six faces");
         }
         int width = faces[0].getWidth();
@@ -64,52 +62,53 @@ public class CustomCubeMapTexture extends AbstractTexture {
         if (width != height) {
             throw new IllegalArgumentException("Panorama faces must be square");
         }
-
-        // match the readback buffer's face order and bottom-up rows
-        try (NativeImage stackedImage = new NativeImage(width, height * faces.length, false)) {
-            for (int i = 0; i < faces.length; i++) {
-                NativeImage face = faces[i];
-                if (face.getWidth() != width || face.getHeight() != height) {
-                    throw new IllegalArgumentException("Panorama faces must have matching dimensions");
-                }
-                face.copyRect(stackedImage, 0, 0, 0, i * height, width, height, false, true);
+        for (NativeImage face : faces) {
+            if (face.getWidth() != width || face.getHeight() != height) {
+                throw new IllegalArgumentException("Panorama faces must have matching dimensions");
             }
-
-            CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-            GpuBufferSlice stagingBuffer = encoder.transientMemory().uploadStaging(stackedImage.getPixelBytes(), 1L, 16);
-            uploadBuffer(encoder, stagingBuffer, width);
         }
-    }
 
-    synchronized void uploadReadback(GpuBufferSlice readback, int faceSize) {
-        CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-        uploadBuffer(encoder, readback, faceSize);
-    }
-
-    private void uploadBuffer(CommandEncoder encoder, GpuBufferSlice buffer, int faceSize) {
-        GpuDevice device = RenderSystem.getDevice();
-        int usage = GpuTexture.USAGE_TEXTURE_BINDING | GpuTexture.USAGE_COPY_DST | GpuTexture.USAGE_CUBEMAP_COMPATIBLE;
-        GpuTexture newTexture = device.createTexture(this.id::toString, usage, GpuFormat.RGBA8_UNORM, faceSize, faceSize, SUFFIX_MAPPING.length, 1);
-        GpuTextureView newView = null;
+        FaceTexture[] textures = new FaceTexture[FACE_COUNT];
         try {
-            newView = device.createTextureView(newTexture);
-            long faceBytes = (long) faceSize * faceSize * Integer.BYTES;
-            for (int layer = 0; layer < SUFFIX_MAPPING.length; layer++) {
-                GpuBufferSlice face = buffer.slice(SUFFIX_MAPPING[layer] * faceBytes, faceBytes);
-                encoder.copyBufferToTexture(face, 0, 0, faceSize, faceSize, newTexture, 0, 0, faceSize, faceSize, 0, layer);
+            for (int i = 0; i < textures.length; i++) {
+                textures[i] = new FaceTexture();
+                PanoramaStorage.makeOpaque(faces[i]);
+                textures[i].upload(faces[i]);
             }
-            encoder.submit();
-        } catch (RuntimeException e) {
-            if (newView != null) {
-                newView.close();
-            }
-            newTexture.close();
-            throw e;
-        }
 
-        this.releaseTextures();
-        this.texture = newTexture;
-        this.textureView = newView;
+            for (int i = 0; i < textures.length; i++) {
+                this.textureManager.register(faceId(i), textures[i]);
+                textures[i] = null;
+            }
+            this.loaded = true;
+        } finally {
+            for (FaceTexture texture : textures) {
+                if (texture != null) {
+                    texture.releaseId();
+                }
+            }
+        }
     }
 
+    private ResourceLocation faceId(int index) {
+        return this.id.withSuffix("_" + index + ".png");
+    }
+
+    @Override
+    public synchronized void close() {
+        for (int i = 0; i < FACE_COUNT; i++) {
+            this.textureManager.release(faceId(i));
+        }
+        this.loaded = false;
+    }
+
+    private static class FaceTexture extends AbstractTexture {
+        private void upload(NativeImage face) {
+            TextureUtil.prepareImage(getId(), face.getWidth(), face.getHeight());
+            face.upload(0, 0, 0, 0, 0, face.getWidth(), face.getHeight(), true, true, false, false);
+        }
+
+        @Override
+        public void load(ResourceManager resourceManager) {}
+    }
 }

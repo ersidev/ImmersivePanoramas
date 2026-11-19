@@ -1,9 +1,10 @@
 package xyz.ersi.immersivepanoramas.client.config;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Checkbox;
 import net.minecraft.client.gui.components.ContainerObjectSelectionList;
@@ -12,11 +13,11 @@ import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarratableEntry;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.multiplayer.ServerList;
 import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.storage.LevelStorageSource;
 import net.minecraft.world.level.storage.LevelSummary;
 import xyz.ersi.immersivepanoramas.client.ModLogger;
@@ -59,14 +60,14 @@ public class ConfigScreen extends Screen {
         int modeY = captureTogglesY + 24;
         this.hintY = modeY + 24;
         int listY = this.hintY + 14;
-        int listHeight = Math.clamp(this.height - listY - 44, LIST_ROW_HEIGHT, MAX_LIST_HEIGHT);
+        int listHeight = Mth.clamp(this.height - listY - 44, LIST_ROW_HEIGHT, MAX_LIST_HEIGHT);
         int doneY = listY + listHeight + 12;
 
         CycleButton<Boolean> modBtn = CycleButton.booleanBuilder(
                 Component.translatable("options.on").withStyle(ChatFormatting.GREEN),
-                Component.translatable("options.off").withStyle(ChatFormatting.RED),
-                this.config.enabled
+                Component.translatable("options.off").withStyle(ChatFormatting.RED)
             )
+            .withInitialValue(this.config.enabled)
             .create(leftX, modY, halfWidth, 20, Component.literal("Mod"), (btn, val) -> {
                 this.config.enabled = val;
                 this.config.save();
@@ -76,9 +77,9 @@ public class ConfigScreen extends Screen {
 
         CycleButton<Boolean> alignBtn = CycleButton.booleanBuilder(
                 Component.translatable("options.on").withStyle(ChatFormatting.GREEN),
-                Component.translatable("options.off").withStyle(ChatFormatting.RED),
-                this.config.alignPlayerRotation
+                Component.translatable("options.off").withStyle(ChatFormatting.RED)
             )
+            .withInitialValue(this.config.alignPlayerRotation)
             .create(rightX, modY, halfWidth, 20, Component.literal("Align View"), (btn, val) -> {
                 this.config.alignPlayerRotation = val;
                 this.config.save();
@@ -88,9 +89,9 @@ public class ConfigScreen extends Screen {
 
         CycleButton<ModConfig.CaptureResolution> resolutionBtn = CycleButton.<ModConfig.CaptureResolution>builder(
                 resolution -> Component.literal(resolution == ModConfig.CaptureResolution.AUTO
-                    ? "Auto" : resolution.getFaceSize() + " px"),
-                () -> this.config.captureResolution
+                    ? "Auto" : resolution.getFaceSize() + " px")
             )
+            .withInitialValue(this.config.captureResolution)
             .withValues(ModConfig.CaptureResolution.values())
             .withTooltip(resolution -> Tooltip.create(Component.literal(switch (resolution) {
                 case AUTO -> "Picks 1024–1536 px per face based on screen height and field of view.\n"
@@ -108,9 +109,9 @@ public class ConfigScreen extends Screen {
 
         CycleButton<Boolean> spBtn = CycleButton.booleanBuilder(
                 Component.translatable("options.on").withStyle(ChatFormatting.GREEN),
-                Component.translatable("options.off").withStyle(ChatFormatting.RED),
-                this.config.enableSingleplayer
+                Component.translatable("options.off").withStyle(ChatFormatting.RED)
             )
+            .withInitialValue(this.config.enableSingleplayer)
             .create(leftX, captureTogglesY, halfWidth, 20, Component.literal("Singleplayer"), (btn, val) -> {
                 this.config.enableSingleplayer = val;
                 this.config.save();
@@ -120,9 +121,9 @@ public class ConfigScreen extends Screen {
 
         CycleButton<Boolean> mpBtn = CycleButton.booleanBuilder(
                 Component.translatable("options.on").withStyle(ChatFormatting.GREEN),
-                Component.translatable("options.off").withStyle(ChatFormatting.RED),
-                this.config.enableMultiplayer
+                Component.translatable("options.off").withStyle(ChatFormatting.RED)
             )
+            .withInitialValue(this.config.enableMultiplayer)
             .create(rightX, captureTogglesY, halfWidth, 20, Component.literal("Multiplayer"), (btn, val) -> {
                 this.config.enableMultiplayer = val;
                 this.config.save();
@@ -134,9 +135,9 @@ public class ConfigScreen extends Screen {
                 mode -> switch (mode) {
                     case ALLOW_LIST -> Component.literal(mode.getDisplayName()).withStyle(ChatFormatting.GREEN);
                     case BLOCK_LIST -> Component.literal(mode.getDisplayName()).withStyle(ChatFormatting.RED);
-                },
-                () -> this.config.filterMode
+                }
             )
+            .withInitialValue(this.config.filterMode)
             .withValues(ModConfig.FilterMode.values())
             .withTooltip(mode -> Tooltip.create(switch (mode) {
                 case BLOCK_LIST -> Component.literal("Block List:\nChecked worlds and servers will be excluded from panorama capture.");
@@ -218,29 +219,31 @@ public class ConfigScreen extends Screen {
     public void onClose() {
         this.config.save();
         if (this.minecraft != null) {
-            this.minecraft.gui.setScreen(this.parent);
+            this.minecraft.setScreen(this.parent);
         }
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float a) {
-        super.extractRenderState(graphics, mouseX, mouseY, a);
+    public void render(GuiGraphics graphics, int mouseX, int mouseY, float a) {
+        this.renderBackground(graphics, mouseX, mouseY, a);
+        super.render(graphics, mouseX, mouseY, a);
 
-        graphics.centeredText(this.font, this.title, this.width / 2, this.titleY, 0xFFFFFFFF);
+        graphics.drawCenteredString(this.font, this.title, this.width / 2, this.titleY, 0xFFFFFFFF);
 
         int leftX = (this.width - CONTENT_WIDTH) / 2;
 
         String hint = this.config.filterMode == ModConfig.FilterMode.BLOCK_LIST
             ? "Checked worlds and servers will be excluded:"
             : "ONLY checked worlds and servers will have panoramas:";
-        graphics.centeredText(this.font, Component.literal(hint), this.width / 2, this.hintY, 0xFFAAAAAA);
+        graphics.drawCenteredString(this.font, Component.literal(hint), this.width / 2, this.hintY, 0xFFAAAAAA);
 
         if (this.list != null) {
             int listY = this.list.getY();
             int listHeight = this.list.getHeight();
+            RenderSystem.enableBlend();
             graphics.fill(leftX - 1, listY - 1, leftX + CONTENT_WIDTH + 1, listY + listHeight + 1, 0x33FFFFFF);
             if (this.list.children().isEmpty()) {
-                graphics.centeredText(this.font, Component.literal("No worlds or servers found."), this.width / 2, listY + listHeight / 2 - 4, 0xFFAAAAAA);
+                graphics.drawCenteredString(this.font, Component.literal("No worlds or servers found."), this.width / 2, listY + listHeight / 2 - 4, 0xFFAAAAAA);
             }
         }
     }
@@ -296,7 +299,6 @@ public class ConfigScreen extends Screen {
             int boxSize = Checkbox.getBoxSize(font);
 
             this.checkbox = Checkbox.builder(CommonComponents.EMPTY, font)
-                .maxWidth(boxSize)
                 .selected(isIncluded)
                 .onValueChange((cb, selected) -> {
                     if (selected) {
@@ -320,45 +322,44 @@ public class ConfigScreen extends Screen {
         }
 
         @Override
-        public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-            if (this.checkbox.mouseClicked(event, doubleClick)) {
+        public boolean mouseClicked(double mouseX, double mouseY, int button) {
+            if (this.checkbox.mouseClicked(mouseX, mouseY, button)) {
                 return true;
             }
-            if (this.isMouseOver(event.x(), event.y())) {
+            if (this.isMouseOver(mouseX, mouseY)) {
                 this.checkbox.playDownSound(Minecraft.getInstance().getSoundManager());
-                this.checkbox.onPress(event);
+                this.checkbox.onPress();
                 return true;
             }
             return false;
         }
 
         @Override
-        public void extractContent(GuiGraphicsExtractor graphics, int mouseX, int mouseY, boolean isHovered, float tickProgress) {
+        public void render(GuiGraphics graphics, int index, int y, int x, int width, int height,
+                           int mouseX, int mouseY, boolean isHovered, float tickProgress) {
             Font font = ConfigScreen.this.font;
-            int x = this.getX();
-            int y = this.getY();
-            int width = this.getWidth();
-            int height = this.getHeight();
 
+            RenderSystem.enableBlend();
             graphics.fill(x, y, x + width, y + height, isHovered ? 0x22FFFFFF : 0x0EFFFFFF);
 
             int textLeft = x + 4;
-            graphics.text(font, this.type.tag, textLeft, y + 4, this.type.color);
+            graphics.drawString(font, this.type.tag, textLeft, y + 4, this.type.color);
             int tagWidth = font.width(this.type.tag);
 
             int maxTextWidth = width - 88;
             String truncatedTitle = font.plainSubstrByWidth(this.title, Math.max(20, maxTextWidth - tagWidth - 4));
-            graphics.text(font, truncatedTitle, textLeft + tagWidth + 4, y + 4, 0xFFFFFFFF);
+            graphics.drawString(font, truncatedTitle, textLeft + tagWidth + 4, y + 4, 0xFFFFFFFF);
 
             String truncatedDetail = font.plainSubstrByWidth(this.detail, Math.max(20, maxTextWidth));
-            graphics.text(font, truncatedDetail, textLeft, y + 16, 0xFFAAAAAA);
+            graphics.drawString(font, truncatedDetail, textLeft, y + 16, 0xFFAAAAAA);
 
             int boxSize = Checkbox.getBoxSize(font);
             int cbX = x + width - boxSize - 4;
             int cbY = y + (height - boxSize) / 2;
+            this.checkbox.setWidth(boxSize);
             this.checkbox.setX(cbX);
             this.checkbox.setY(cbY);
-            this.checkbox.extractRenderState(graphics, mouseX, mouseY, tickProgress);
+            this.checkbox.render(graphics, mouseX, mouseY, tickProgress);
 
             if (this.checkbox.selected()) {
                 boolean isBlock = config.filterMode == ModConfig.FilterMode.BLOCK_LIST;
@@ -367,7 +368,7 @@ public class ConfigScreen extends Screen {
                     : Component.literal("Allowed").withStyle(ChatFormatting.GREEN);
                 int statusColor = isBlock ? 0xFFFF5555 : 0xFF55FF55;
                 int statusWidth = font.width(status);
-                graphics.text(font, status, cbX - statusWidth - 4, y + (height - 9) / 2, statusColor);
+                graphics.drawString(font, status, cbX - statusWidth - 4, y + (height - 9) / 2, statusColor);
             }
         }
     }

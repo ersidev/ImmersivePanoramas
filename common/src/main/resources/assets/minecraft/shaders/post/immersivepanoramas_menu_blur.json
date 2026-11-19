@@ -1,0 +1,167 @@
+{
+  "targets": [
+    "swap"
+  ],
+  "passes": [
+    {
+      "name": "immersivepanoramas_menu_blur",
+      "intarget": "minecraft:main",
+      "outtarget": "swap",
+      "uniforms": [
+        {
+          "name": "BlurDir",
+          "values": [
+            1.0,
+            0.0
+          ]
+        },
+        {
+          "name": "Radius",
+          "values": [
+            5.0
+          ]
+        },
+        {
+          "name": "RadiusMultiplier",
+          "values": [
+            1.0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "immersivepanoramas_menu_blur",
+      "intarget": "swap",
+      "outtarget": "minecraft:main",
+      "uniforms": [
+        {
+          "name": "BlurDir",
+          "values": [
+            0.0,
+            1.0
+          ]
+        },
+        {
+          "name": "Radius",
+          "values": [
+            5.0
+          ]
+        },
+        {
+          "name": "RadiusMultiplier",
+          "values": [
+            1.0
+          ]
+        }
+      ]
+    },
+    {
+      "name": "immersivepanoramas_menu_blur",
+      "intarget": "minecraft:main",
+      "outtarget": "swap",
+      "uniforms": [
+        {
+          "name": "BlurDir",
+          "values": [
+            1.0,
+            0.0
+          ],
+          "RadiusMultiplier": 0.5
+        },
+        {
+          "name": "Radius",
+          "values": [
+            5.0
+          ]
+        },
+        {
+          "name": "RadiusMultiplier",
+          "values": [
+            0.5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "immersivepanoramas_menu_blur",
+      "intarget": "swap",
+      "outtarget": "minecraft:main",
+      "uniforms": [
+        {
+          "name": "BlurDir",
+          "values": [
+            0.0,
+            1.0
+          ],
+          "RadiusMultiplier": 0.5
+        },
+        {
+          "name": "Radius",
+          "values": [
+            5.0
+          ]
+        },
+        {
+          "name": "RadiusMultiplier",
+          "values": [
+            0.5
+          ]
+        }
+      ]
+    },
+    {
+      "name": "immersivepanoramas_menu_blur",
+      "intarget": "minecraft:main",
+      "outtarget": "swap",
+      "uniforms": [
+        {
+          "name": "BlurDir",
+          "values": [
+            1.0,
+            0.0
+          ],
+          "RadiusMultiplier": 0.25
+        },
+        {
+          "name": "Radius",
+          "values": [
+            5.0
+          ]
+        },
+        {
+          "name": "RadiusMultiplier",
+          "values": [
+            0.25
+          ]
+        }
+      ]
+    },
+    {
+      "name": "immersivepanoramas_menu_blur",
+      "intarget": "swap",
+      "outtarget": "minecraft:main",
+      "uniforms": [
+        {
+          "name": "BlurDir",
+          "values": [
+            0.0,
+            1.0
+          ],
+          "RadiusMultiplier": 0.25
+        },
+        {
+          "name": "Radius",
+          "values": [
+            5.0
+          ]
+        },
+        {
+          "name": "RadiusMultiplier",
+          "values": [
+            0.25
+          ]
+        }
+      ]
+    }
+  ]
+}

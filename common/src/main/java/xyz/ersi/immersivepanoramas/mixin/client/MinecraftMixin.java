@@ -4,7 +4,6 @@ import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.main.GameConfig;
 import org.spongepowered.asm.mixin.Mixin;
@@ -36,10 +35,11 @@ public class MinecraftMixin {
     private void onClose(CallbackInfo ci) {
         PanoramaCapture.close();
         FrozenWorldRenderer.endExit();
+        CustomPanoramaManager.close();
     }
 
-    @WrapMethod(method = "disconnect(Lnet/minecraft/client/gui/screens/Screen;ZZ)V")
-    private void duringDisconnect(Screen screen, boolean keepResourcePacks, boolean stopSound, Operation<Void> original) {
+    @WrapMethod(method = "disconnect(Lnet/minecraft/client/gui/screens/Screen;Z)V")
+    private void duringDisconnect(Screen screen, boolean transferring, Operation<Void> original) {
         Minecraft client = (Minecraft) (Object) this;
         boolean startedExit = FrozenWorldRenderer.beginExit(client, screen);
         try (DisconnectWatchdog watchdog = startedExit ? DisconnectWatchdog.start(client) : null) {
@@ -53,7 +53,7 @@ public class MinecraftMixin {
                     watchdog.finishingDisconnect();
                 }
             }
-            original.call(screen, keepResourcePacks, stopSound);
+            original.call(screen, transferring);
         } finally {
             if (startedExit) {
                 FrozenWorldRenderer.endExit();
@@ -62,11 +62,13 @@ public class MinecraftMixin {
     }
 
     @WrapOperation(
-        method = "disconnect(Lnet/minecraft/client/gui/screens/Screen;ZZ)V",
-        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/Gui;setScreen(Lnet/minecraft/client/gui/screens/Screen;)V")
+        method = "updateScreenAndTick",
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Minecraft;runTick(Z)V")
     )
-    private void trackSavingScreen(Gui gui, Screen screen, Operation<Void> original) {
-        FrozenWorldRenderer.setSavingScreen(screen);
-        original.call(gui, screen);
+    private void skipMultiplayerProgressFrame(Minecraft client, boolean advanceGameTime, Operation<Void> original) {
+        // keep the pause menu visible until the multiplayer menu is ready
+        if (!FrozenWorldRenderer.shouldSkipMultiplayerProgressFrame(client)) {
+            original.call(client, advanceGameTime);
+        }
     }
 }

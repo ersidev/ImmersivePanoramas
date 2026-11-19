@@ -1,0 +1,96 @@
+buildscript {
+    repositories {
+        maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
+    }
+    dependencies {
+        classpath 'org.spongepowered:mixingradle:0.7-SNAPSHOT'
+    }
+}
+
+plugins {
+    id 'multiloader-loader'
+    id 'net.minecraftforge.gradle'
+}
+
+if (minecraft_version != '1.20.6') {
+    apply plugin: 'org.spongepowered.mixin'
+}
+
+jarJar.enable()
+
+minecraft {
+    mappings channel: 'official', version: minecraft_version
+    reobf = minecraft_version != '1.20.6'
+    runs {
+        client {
+            workingDirectory project.file("run/${minecraft_version}")
+            mods {
+                "${mod_id}" {
+                    source sourceSets.main
+                }
+            }
+        }
+    }
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+    implementation 'io.github.llamalad7:mixinextras-forge:0.4.1'
+    jarJar('io.github.llamalad7:mixinextras-forge:[0.4.1,0.5)') {
+        jarJar.pin(it, '0.4.1')
+    }
+    compileOnly 'io.github.llamalad7:mixinextras-common:0.4.1'
+    annotationProcessor 'io.github.llamalad7:mixinextras-common:0.4.1'
+    if (minecraft_version != '1.20.6') {
+        annotationProcessor 'org.spongepowered:mixin:0.8.7:processor'
+    }
+}
+
+jar {
+    manifest.attributes('MixinConfigs': "${mod_id}.mixins.json")
+}
+
+if (minecraft_supported_versions.contains('1.20.3')) {
+    processResources {
+        filesMatching('immersivepanoramas.mixins.json') {
+            filter { line -> line.contains('"package"')
+                ? '  "plugin": "xyz.ersi.immersivepanoramas.forge.ForgeMixinConfigPlugin",\n' + line
+                : line }
+        }
+    }
+}
+
+if (minecraft_version != '1.20.6') {
+    mixin {
+        add sourceSets.main, "${mod_id}.refmap.json"
+        config "${mod_id}.mixins.json"
+    }
+} else {
+    processResources {
+        filesMatching('immersivepanoramas.mixins.json') {
+            filter { line -> line.contains('"refmap"') ? null : line.replace('"JAVA_21"', '"JAVA_17"') }
+        }
+    }
+}
+
+if (minecraft_version != '1.20.6') {
+    tasks.named('jar') {
+        finalizedBy 'reobfJar'
+    }
+    reobf {
+        jarJar {}
+    }
+    tasks.named('jarJar') {
+        finalizedBy 'reobfJarJar'
+    }
+}
+
+tasks.named('jar') {
+    archiveClassifier = 'slim'
+}
+tasks.named('jarJar') {
+    archiveClassifier = ''
+}
+tasks.named('assemble') {
+    dependsOn 'jarJar'
+}

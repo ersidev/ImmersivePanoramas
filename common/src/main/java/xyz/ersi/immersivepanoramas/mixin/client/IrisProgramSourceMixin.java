@@ -9,7 +9,7 @@ import xyz.ersi.immersivepanoramas.client.IrisCompat;
 import java.util.Optional;
 
 @Pseudo
-@Mixin(targets = "net.irisshaders.iris.shaderpack.programs.ProgramSource", remap = false)
+@Mixin(targets = {"net.irisshaders.iris.shaderpack.programs.ProgramSource", "net.coderbot.iris.shaderpack.ProgramSource"}, remap = false)
 public class IrisProgramSourceMixin {
     @ModifyReturnValue(method = "getFragmentSource", at = @At("RETURN"), require = 0)
     private Optional<String> skipPhotonVignetteDuringCapture(Optional<String> source) {

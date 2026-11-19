@@ -1,21 +1,79 @@
 plugins {
     id 'multiloader-loader'
-    id 'net.neoforged.moddev'
 }
 
-neoForge {
-    version = neoforge_version
-    mods {
-        "${mod_id}" {
-            sourceSet sourceSets.main
-        }
+// older neoforge releases use the original userdev format
+def legacyUserdev = minecraft_version in ['1.20.2', '1.20.3', '1.20.5']
+if (legacyUserdev) {
+    apply plugin: 'net.neoforged.gradle.userdev'
+    dependencies {
+        implementation "net.neoforged:neoforge:${neoforge_version}"
     }
     runs {
-        client {
-            client()
+        configureEach {
+            modSource sourceSets.main
+            workingDirectory = project.file("run/${minecraft_version}")
         }
-        server {
-            server()
+        client {}
+        server {}
+    }
+    jarJar.enable()
+    tasks.named('jar') {
+        archiveClassifier = 'slim'
+    }
+    tasks.named('jarJar') {
+        archiveClassifier = ''
+    }
+    tasks.named('assemble') {
+        dependsOn 'jarJar'
+    }
+} else {
+    apply plugin: 'net.neoforged.moddev'
+    neoForge {
+        version = neoforge_version
+        mods {
+            "${mod_id}" {
+                sourceSet sourceSets.main
+            }
         }
+        runs {
+            client {
+                gameDirectory = project.layout.projectDirectory.dir("run/${minecraft_version}")
+                client()
+            }
+            server {
+                gameDirectory = project.layout.projectDirectory.dir("run/${minecraft_version}")
+                server()
+            }
+        }
+    }
+}
+
+dependencies {
+    jarJar(implementation('io.github.llamalad7:mixinextras-neoforge')) {
+        version {
+            strictly '[0.4.1,0.5)'
+            prefer '0.4.1'
+        }
+    }
+}
+
+jar {
+    manifest.attributes('MixinConfigs': "${mod_id}.mixins.json")
+}
+
+if (minecraft_version in ['1.20.2', '1.20.3', '1.20.4']) {
+    processResources {
+        from(project(':common').file("src/main/resources/assets/${mod_id}/icon.png"))
+        filesMatching('META-INF/neoforge.mods.toml') {
+            path = 'META-INF/mods.toml'
+            filter { line -> line.startsWith('logoFile=') ? 'logoFile="icon.png"'
+                : line.replace('type="required"', 'mandatory=true') }
+        }
+    }
+}
+processResources {
+    filesMatching('immersivepanoramas.mixins.json') {
+        filter { line -> line.contains('"refmap"') ? null : line }
     }
 }

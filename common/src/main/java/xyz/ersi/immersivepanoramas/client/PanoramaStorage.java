@@ -1,7 +1,9 @@
 package xyz.ersi.immersivepanoramas.client;
 
 import com.mojang.blaze3d.platform.NativeImage;
-import net.minecraft.util.Util;
+import net.minecraft.Util;
+import org.lwjgl.system.MemoryUtil;
+import xyz.ersi.immersivepanoramas.mixin.client.NativeImageAccessor;
 import xyz.ersi.immersivepanoramas.platform.Services;
 
 import java.io.IOException;
@@ -102,11 +104,6 @@ final class PanoramaStorage {
         boolean published = false;
         try {
             for (int i = 0; i < faces.length; i++) {
-                // shader packs can leave the world render target transparent
-                ByteBuffer pixels = faces[i].getPixelBytes();
-                for (int offset = 3; offset < pixels.limit(); offset += Integer.BYTES) {
-                    pixels.put(offset, (byte) 255);
-                }
                 faces[i].writeToFile(capture.resolve(faceFileName(i)));
             }
 
@@ -170,6 +167,19 @@ final class PanoramaStorage {
 
     static String faceFileName(int face) {
         return "panorama_" + face + ".png";
+    }
+
+    static ByteBuffer pixels(NativeImage face) {
+        long pointer = ((NativeImageAccessor) (Object) face).getPixelsPointer();
+        return MemoryUtil.memByteBuffer(pointer, face.getWidth() * face.getHeight() * Integer.BYTES);
+    }
+
+    static void makeOpaque(NativeImage face) {
+        // shader packs can leave the world render target transparent
+        ByteBuffer pixels = pixels(face);
+        for (int offset = 3; offset < pixels.limit(); offset += Integer.BYTES) {
+            pixels.put(offset, (byte) 255);
+        }
     }
 
     static void closeImages(NativeImage[] faces) {

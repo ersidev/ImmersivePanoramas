@@ -10,9 +10,17 @@ public final class IrisCompat {
 
     private IrisCompat() {}
 
+    private static Class<?> irisClass(String name) throws ClassNotFoundException {
+        try {
+            return Class.forName("net.irisshaders.iris." + name);
+        } catch (ClassNotFoundException e) {
+            return Class.forName("net.coderbot.iris." + name);
+        }
+    }
+
     static boolean isShaderPackInUse() {
         try {
-            Class<?> irisApi = Class.forName("net.irisshaders.iris.api.v0.IrisApi");
+            Class<?> irisApi = irisClass("api.v0.IrisApi");
             Object instance = irisApi.getMethod("getInstance").invoke(null);
             Method isShaderPackInUse = irisApi.getMethod("isShaderPackInUse");
             return (boolean) isShaderPackInUse.invoke(instance);
@@ -24,10 +32,23 @@ public final class IrisCompat {
         }
     }
 
+    public static boolean isRenderingShadowPass() {
+        try {
+            Class<?> irisApi = irisClass("api.v0.IrisApi");
+            Object instance = irisApi.getMethod("getInstance").invoke(null);
+            return (boolean) irisApi.getMethod("isRenderingShadowPass").invoke(instance);
+        } catch (ClassNotFoundException e) {
+            return false;
+        } catch (ReflectiveOperationException | LinkageError e) {
+            ModLogger.warn("Could not query Iris shadow pass state", e);
+            return false;
+        }
+    }
+
     public static void registerCaptureUniform(Object uniformHolder) {
         try {
-            Class<?> holderType = Class.forName("net.irisshaders.iris.gl.uniform.UniformHolder");
-            Class<?> frequencyType = Class.forName("net.irisshaders.iris.gl.uniform.UniformUpdateFrequency");
+            Class<?> holderType = irisClass("gl.uniform.UniformHolder");
+            Class<?> frequencyType = irisClass("gl.uniform.UniformUpdateFrequency");
             Method uniform1b = holderType.getMethod("uniform1b", frequencyType, String.class, BooleanSupplier.class);
             uniform1b.invoke(uniformHolder, frequencyType.getField("PER_FRAME").get(null), CAPTURE_UNIFORM,
                 (BooleanSupplier) PanoramaCapture::isCapturing);
