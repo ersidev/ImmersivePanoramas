@@ -1,12 +1,16 @@
 package xyz.ersi.immersivepanoramas.client;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonParseException;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.minecraft.Util;
 import org.lwjgl.system.MemoryUtil;
 import xyz.ersi.immersivepanoramas.mixin.client.NativeImageAccessor;
+import xyz.ersi.immersivepanoramas.client.CustomPanoramaManager.CapturedView;
 import xyz.ersi.immersivepanoramas.platform.Services;
 
 import java.io.IOException;
+import java.io.Reader;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -17,29 +21,35 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 final class PanoramaStorage {
+    private static final Gson GSON = new Gson();
     private static final String CURRENT_FILE = "current";
+    private static final String VIEW_FILE = "view.json";
     private static final String CAPTURE_PREFIX = "capture-";
     private static final Pattern CAPTURE_NAME = Pattern.compile(CAPTURE_PREFIX + "[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}");
 
-    private static NativeImage[] queuedSave;
+    private static SavedCapture queuedSave;
     private static boolean saveWorkerRunning;
 
     private PanoramaStorage() {}
 
-    static boolean load(CustomCubeMapTexture texture) {
+    static CapturedView load(CustomCubeMapTexture texture) {
         Path root = panoramaDirectory();
         Path published = readPublishedDirectory(root);
         if (published != null) {
+            CapturedView view = readView(published);
             if (loadFromDirectory(texture, published)) {
-                return true;
+                return view;
             }
             // another instance may have replaced this save during loading
             Path latest = readPublishedDirectory(root);
-            if (latest != null && !latest.equals(published) && loadFromDirectory(texture, latest)) {
-                return true;
+            if (latest != null && !latest.equals(published)) {
+                view = readView(latest);
+                if (loadFromDirectory(texture, latest)) {
+                    return view;
+                }
             }
         }
-        return loadFromDirectory(texture, root);
+        return loadFromDirectory(texture, root) ? readView(root) : null;
     }
 
     private static boolean loadFromDirectory(CustomCubeMapTexture texture, Path directory) {
@@ -50,10 +60,27 @@ final class PanoramaStorage {
         return true;
     }
 
-    static synchronized void queueSave(NativeImage[] faces) {
+    private static CapturedView readView(Path directory) {
+        try (Reader reader = Files.newBufferedReader(directory.resolve(VIEW_FILE))) {
+            CapturedView view = GSON.fromJson(reader, CapturedView.class);
+            if (view != null && Float.isFinite(view.yaw()) && Math.abs(view.pitch()) <= 90.0F && Float.isFinite(view.fov())) {
+                return view;
+            }
+            ModLogger.warn("Invalid panorama view in {}", directory);
+        } catch (NoSuchFileException e) {
+            // older panoramas only contain the face images
+        } catch (IOException | JsonParseException e) {
+            ModLogger.warn("Failed to read panorama view from {}", directory, e);
+        }
+        return null;
+    }
+
+    static synchronized void queueSave(NativeImage[] faces, CapturedView view) {
         // the writer owns its active capture, only the waiting capture can be replaced here
-        closeImages(queuedSave);
-        queuedSave = faces;
+        if (queuedSave != null) {
+            closeImages(queuedSave.faces());
+        }
+        queuedSave = new SavedCapture(faces, view);
         if (!saveWorkerRunning) {
             saveWorkerRunning = true;
             try {
@@ -68,19 +95,21 @@ final class PanoramaStorage {
 
     private static void drainSaves() {
         try {
-            NativeImage[] faces;
-            while ((faces = takeNextSave()) != null) {
+            SavedCapture save;
+            while ((save = takeNextSave()) != null) {
                 try {
-                    writeFaces(panoramaDirectory(), faces);
+                    writeCapture(panoramaDirectory(), save);
                 } catch (IOException | RuntimeException e) {
                     ModLogger.error("Failed to save panorama", e);
                 } finally {
-                    closeImages(faces);
+                    closeImages(save.faces());
                 }
             }
         } catch (RuntimeException | Error e) {
             synchronized (PanoramaStorage.class) {
-                closeImages(queuedSave);
+                if (queuedSave != null) {
+                    closeImages(queuedSave.faces());
+                }
                 queuedSave = null;
                 saveWorkerRunning = false;
             }
@@ -88,29 +117,31 @@ final class PanoramaStorage {
         }
     }
 
-    private static synchronized NativeImage[] takeNextSave() {
-        NativeImage[] faces = queuedSave;
+    private static synchronized SavedCapture takeNextSave() {
+        SavedCapture save = queuedSave;
         queuedSave = null;
-        if (faces == null) {
+        if (save == null) {
             saveWorkerRunning = false;
         }
-        return faces;
+        return save;
     }
 
-    private static void writeFaces(Path root, NativeImage[] faces) throws IOException {
+    private static void writeCapture(Path root, SavedCapture save) throws IOException {
         Files.createDirectories(root);
         Path capture = Files.createDirectory(root.resolve(CAPTURE_PREFIX + UUID.randomUUID()));
+        NativeImage[] faces = save.faces();
         Path marker = null;
         boolean published = false;
         try {
             for (int i = 0; i < faces.length; i++) {
                 faces[i].writeToFile(capture.resolve(faceFileName(i)));
             }
+            Files.writeString(capture.resolve(VIEW_FILE), GSON.toJson(save.view()));
 
             Path previous = readPublishedDirectory(root);
             marker = Files.createTempFile(root, ".current-", ".tmp");
             Files.writeString(marker, capture.getFileName().toString());
-            // readers see the old marker or the new one, each pointing to a complete set of faces
+            // publish the faces and their view together
             Files.move(marker, root.resolve(CURRENT_FILE), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             published = true;
             if (previous != null) {
@@ -149,6 +180,7 @@ final class PanoramaStorage {
             for (int i = 0; i < faceCount; i++) {
                 deletePath(capture.resolve(faceFileName(i)));
             }
+            deletePath(capture.resolve(VIEW_FILE));
             deletePath(capture);
         }
     }
@@ -191,4 +223,6 @@ final class PanoramaStorage {
             }
         }
     }
+
+    private record SavedCapture(NativeImage[] faces, CapturedView view) {}
 }

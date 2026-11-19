@@ -11,6 +11,7 @@ import net.minecraft.client.player.LocalPlayer;
 import org.lwjgl.opengl.GL32C;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
+import xyz.ersi.immersivepanoramas.client.CustomPanoramaManager.CapturedView;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig.CaptureResolution;
 import xyz.ersi.immersivepanoramas.mixin.client.GameRendererAccessor;
@@ -50,7 +51,8 @@ public class PanoramaCapture {
         int faceSize = config.captureResolution == CaptureResolution.AUTO
             ? chooseFaceSize(client.getMainRenderTarget().height, fov)
             : config.captureResolution.getFaceSize();
-        PendingCapture capture = new PendingCapture(CustomPanoramaManager.getWorldKey(client), yaw, pitch, fov, faceSize);
+        CapturedView capturedView = new CapturedView(CustomPanoramaManager.getWorldKey(client), yaw, Mth.clamp(pitch, -90.0F, 90.0F), fov);
+        PendingCapture capture = new PendingCapture(capturedView, faceSize);
         isCapturing = true;
         try {
             close();
@@ -88,7 +90,7 @@ public class PanoramaCapture {
         int targetHeight = target.height;
         float pitch = player.getXRot();
         float originalYaw = player.getYRot();
-        float yaw = capture.yaw;
+        float yaw = capture.view.yaw();
         float previousPitch = player.xRotO;
         float previousYaw = player.yRotO;
         CameraType cameraType = client.options.getCameraType();
@@ -239,9 +241,9 @@ public class PanoramaCapture {
                 }
             }
 
-            CustomPanoramaManager.uploadCapture(client, faces, capture.worldKey, capture.yaw, capture.pitch, capture.fov);
+            CustomPanoramaManager.uploadCapture(client, faces, capture.view);
             ((PanoramaAccessor) ScreenAccessor.getPanorama()).setSpin(0.0F);
-            PanoramaStorage.queueSave(faces);
+            PanoramaStorage.queueSave(faces, capture.view);
             faces = null;
         } catch (Exception e) {
             if (pendingCapture == capture) {
@@ -270,20 +272,14 @@ public class PanoramaCapture {
     public record CameraView(Vec3 position, float yaw, float pitch, float fov) {}
 
     private static final class PendingCapture implements AutoCloseable {
-        private final String worldKey;
-        private final float yaw;
-        private final float pitch;
-        private final float fov;
+        private final CapturedView view;
         private final int faceSize;
         private long submittedAt;
         private int buffer;
         private long fence;
 
-        private PendingCapture(String worldKey, float yaw, float pitch, float fov, int faceSize) {
-            this.worldKey = worldKey;
-            this.yaw = yaw;
-            this.pitch = pitch;
-            this.fov = fov;
+        private PendingCapture(CapturedView view, int faceSize) {
+            this.view = view;
             this.faceSize = faceSize;
         }
 
