@@ -2,6 +2,7 @@ package xyz.ersi.immersivepanoramas.client;
 
 import com.mojang.blaze3d.buffers.GpuBuffer;
 import com.mojang.blaze3d.buffers.GpuFence;
+import com.mojang.blaze3d.opengl.GlDevice;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -20,6 +21,7 @@ import net.minecraft.gizmos.Gizmos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Vector3f;
+import org.lwjgl.opengl.GL11C;
 import org.lwjgl.system.MemoryUtil;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig;
 import xyz.ersi.immersivepanoramas.client.config.ModConfig.CaptureResolution;
@@ -118,7 +120,7 @@ public class PanoramaCapture {
             if (view != null) {
                 renderView(client, view);
                 FrozenWorldRenderer.freeze(target);
-                RenderSystem.getDynamicUniforms().reset();
+                resetCaptureUniforms();
             }
 
             client.getWindow().setWidth(faceSize);
@@ -140,7 +142,7 @@ public class PanoramaCapture {
             if (shadersActive) {
                 // turn the camera once after resizing so the first saved face rejects stale shader history
                 position = renderFace(client, player, (yaw - 90.0F) % 360.0F, 0.0F, position);
-                RenderSystem.getDynamicUniforms().reset();
+                resetCaptureUniforms();
             }
 
             for (int i = 0; i < FACE_COUNT; i++) {
@@ -162,7 +164,7 @@ public class PanoramaCapture {
                 if (i == FACE_COUNT - 1) {
                     capture.fence = encoder.createFence();
                 }
-                RenderSystem.getDynamicUniforms().reset();
+                resetCaptureUniforms();
             }
         } finally {
             player.setXRot(pitch);
@@ -175,6 +177,14 @@ public class PanoramaCapture {
             client.getWindow().setHeight(windowHeight);
             client.gameRenderer.setPanoramicScreenshotParameters(previousParameters);
             target.resize(targetWidth, targetHeight);
+        }
+    }
+
+    private static void resetCaptureUniforms() {
+        RenderSystem.getDynamicUniforms().reset();
+        if (RenderSystem.getDevice() instanceof GlDevice) {
+            // flush the buffer reuse fences before a later face waits on them
+            GL11C.glFlush();
         }
     }
 
