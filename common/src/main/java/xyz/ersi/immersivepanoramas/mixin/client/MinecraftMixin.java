@@ -34,7 +34,7 @@ public class MinecraftMixin {
 
     @Inject(method = "close", at = @At("HEAD"))
     private void onClose(CallbackInfo ci) {
-        PanoramaCapture.close();
+        PanoramaCapture.finishOnShutdown((Minecraft) (Object) this);
         FrozenWorldRenderer.endExit();
     }
 
